@@ -14,6 +14,7 @@ import { action } from "./stats";
 import { applyReview, docKey, loadReview, saveReview, setMark, RevMark, REV_LABEL, Review } from "./review";
 import { makeThumbs, exportPdf, reportName } from "./exportPdf";
 import { actionFor } from "./actions";
+import { TacDetail } from "./TacDetail";
 
 const VERDICT: Record<Sev, { t: string; s: string }> = {
   error: { t: "No está listo para imprenta", s: "Hay problemas que la imprenta va a rechazar o que se van a ver en el papel." },
@@ -25,7 +26,7 @@ const VERDICT: Record<Sev, { t: string; s: string }> = {
 export interface OrigState { status: "running" | "done" | "error"; name: string; findings: Finding[]; sum?: Omit<OrigResult, "findings">; message?: string }
 export interface DiffState { status: "running" | "done" | "error"; pct: number; name: string; findings: Finding[]; prevPages: number; message?: string; corr?: CorrSummary; corrFindings?: Finding[] }
 
-export function Results({ engine, report: base, since, diff, setDiff, orig, setOrig, onReset, onProfile, onBack, onAddCover, onRerun }: { onRerun?: (patch: any) => void; engine: Engine; report: Report; since: number | null; diff?: DiffState; setDiff: (d: DiffState) => void; orig?: OrigState; setOrig: (o: OrigState) => void; onAddCover?: (f: File) => void; onReset: () => void; onProfile: () => void; onBack?: () => void }) {
+export function Results({ engine, report: base, since, diff, setDiff, orig, setOrig, onReset, onProfile, onBack, onAddCover, onRerun, onPatch }: { onPatch?: (r: Report) => void; onRerun?: (patch: any) => void; engine: Engine; report: Report; since: number | null; diff?: DiffState; setDiff: (d: DiffState) => void; orig?: OrigState; setOrig: (o: OrigState) => void; onAddCover?: (f: File) => void; onReset: () => void; onProfile: () => void; onBack?: () => void }) {
   const report = base;
   const rkey = docKey(base.file.name, base.profile.piece);
   const detected = detectApp(base.file.creator ?? "", base.file.producer ?? "");
@@ -126,6 +127,12 @@ export function Results({ engine, report: base, since, diff, setDiff, orig, setO
           <div className="vhead"><SevIcon sev={applied.verdict} size={26} /><h1>{VERDICT[applied.verdict].t}</h1></div>
           <p>{VERDICT[applied.verdict].s}{report.profile.printerName ? ` Revisado con los valores de ${report.profile.printerName}.` : ""} <button className="scopeinline" onClick={() => setScope(true)}>Revisión automática, no una certificación</button></p>
           <ScopeDialog open={scope} onClose={() => setScope(false)} />
+          {(() => {
+            const coarse = report.pages.filter(p => (p.tacPpi ?? 150) < 150).length;
+            const target = report.findings.find(f => f.check === "tac") ?? report.findings.find(f => f.check === "lightMode");
+            if (!coarse || !target || !report.findings.some(f => f.check === "lightMode")) return null;
+            return <p className="lightwarn">Archivo pesado: la tinta total se midió con poco detalle y puede haber zonas que no aparezcan. <button onClick={() => { setTab("hallazgos"); setFilter("all"); select(target); }}>Medirla en detalle</button></p>;
+          })()}
           {report.suggest && onRerun && (
             <div className="suggest" role="status">
               <b>¿Elegiste bien el perfil?</b>
@@ -176,7 +183,7 @@ export function Results({ engine, report: base, since, diff, setDiff, orig, setO
                 <ul>{costList.map(c => <li key={c.title} className={c.tone}><b>{c.title}</b><p>{c.text}</p></li>)}</ul>
               </details>
             )}
-            {filter !== "ok" && shown.map(f => <FindingCard key={f.id} f={f} open={selected?.id === f.id} onClick={() => select(f)} goto={p => { setPage(p); setSelected(f); }} onMark={(m, it) => mark(f, m, it)} appFix={appFix(app, f.check)} appName={appName} />)}
+            {filter !== "ok" && shown.map(f => <FindingCard key={f.id} f={f} open={selected?.id === f.id} onClick={() => select(f)} goto={p => { setPage(p); setSelected(f); }} onMark={(m, it) => mark(f, m, it)} appFix={appFix(app, f.check)} appName={appName} extra={(f.check === "tac" || f.check === "lightMode") && onPatch ? <TacDetail engine={engine} report={base} onPatch={onPatch} /> : undefined} />)}
             {filter === "all" && applied.marked.length > 0 && (
               <details className="marked">
                 <summary>{applied.markedCount} marcado{applied.markedCount !== 1 ? "s" : ""} por vos</summary>
@@ -192,7 +199,7 @@ export function Results({ engine, report: base, since, diff, setDiff, orig, setO
             {notes.length > 0 && (
               <details className="notes">
                 <summary>{notes.length} nota{notes.length !== 1 ? "s" : ""} para saber</summary>
-                {notes.map(f => <FindingCard key={f.id} f={f} open={selected?.id === f.id} onClick={() => select(f)} goto={p => { setPage(p); setSelected(f); }} onMark={(m, it) => mark(f, m, it)} appFix={appFix(app, f.check)} appName={appName} />)}
+                {notes.map(f => <FindingCard key={f.id} f={f} open={selected?.id === f.id} onClick={() => select(f)} goto={p => { setPage(p); setSelected(f); }} onMark={(m, it) => mark(f, m, it)} appFix={appFix(app, f.check)} appName={appName} extra={(f.check === "tac" || f.check === "lightMode") && onPatch ? <TacDetail engine={engine} report={base} onPatch={onPatch} /> : undefined} />)}
               </details>
             )}
             {filter === "all" && (
@@ -306,7 +313,7 @@ export function Results({ engine, report: base, since, diff, setDiff, orig, setO
   );
 }
 
-function FindingCard({ f, open, onClick, goto, onMark, appFix, appName }: { f: Finding; open: boolean; onClick: () => void; goto: (p: number) => void; onMark?: (m: RevMark | null, item?: string) => void; appFix?: string | null; appName?: string | null }) {
+function FindingCard({ f, open, onClick, goto, onMark, appFix, appName, extra }: { extra?: React.ReactNode; f: Finding; open: boolean; onClick: () => void; goto: (p: number) => void; onMark?: (m: RevMark | null, item?: string) => void; appFix?: string | null; appName?: string | null }) {
   return (
     <article className={"fcard " + f.sev + (open ? " open" : "")}>
       <button className="fhead" onClick={onClick} aria-expanded={open}>
@@ -319,6 +326,7 @@ function FindingCard({ f, open, onClick, goto, onMark, appFix, appName }: { f: F
           {f.pages.length > 0 && (
             <div className="pchips">{f.pages.slice(0, 40).map(p => <button key={p} onClick={() => goto(p)}>{p + 1}</button>)}{f.pages.length > 40 && <span>+{f.pages.length - 40}</span>}</div>
           )}
+          {extra}
           <h4>Qué pasa en imprenta</h4><p>{f.impact}</p>
           {appFix ? <><h4>Cómo se arregla en {appName}</h4><p>{appFix}</p><h4>En general</h4><p className="muted">{f.fix}</p></> : <><h4>Cómo se arregla</h4><p>{f.fix}</p></>}
           {onMark && <div className="markbar"><span>¿Ya lo viste?</span><button onClick={() => onMark("ok")}>Revisado, está bien así</button><button onClick={() => onMark("fa")}>Falsa alarma</button></div>}

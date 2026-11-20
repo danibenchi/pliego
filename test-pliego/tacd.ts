@@ -1,0 +1,13 @@
+import fs from "fs"; import { analyze, tacDetail } from "../src/pliego/engine/analyze";
+import { applyTac } from "../src/pliego/ui/TacDetail";
+const fb = new Uint8Array(fs.readFileSync("src/pliego/assets/FOGRA39L_coated.bin"));
+const prof: any = { systemId: "offset-estucado", contentId: "escolar", piece: "interior", colorMode: "cmyk", country: "ar", paperId: "estucado115", spell: false, press: "offset", inks: "4", binding: "fresada", chaptersOdd: "auto" };
+let t = Date.now();
+const r = analyze(new Uint8Array(fs.readFileSync(process.argv[2])), "libro", prof, () => {}, { icc: null, iccName: null, fallback: fb, light: true, key: "k" } as any);
+console.log("revisión liviana", Date.now() - t, "ms", r.findings.find(f => f.check === "tac")?.detail);
+const near = r.pages.filter(p => p.tacMax >= 320 * 0.8).map(p => p.index);
+t = Date.now();
+const res = tacDetail("k", near, 320, r.pages.filter(p => p.rgb).map(p => p.index), () => {});
+console.log("detalle", near.length, "págs", Date.now() - t, "ms →", (Date.now() - t) / near.length, "ms/pág");
+const r2 = applyTac(r, res);
+console.log("después:", r2.findings.find(f => f.check === "tac")?.detail, r2.counts);

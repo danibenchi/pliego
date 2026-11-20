@@ -1,5 +1,5 @@
 // Cliente del worker con cola de prioridades: la vista principal pasa delante de las miniaturas.
-import type { Report, Progress, RenderOut, Peek } from "../engine/analyze";
+import type { Report, Progress, RenderOut, Peek, Inspect, TacPage } from "../engine/analyze";
 import type { Profile } from "../engine/profiles";
 import type { CompareResult } from "../engine/compare";
 import type { OrigResult } from "../engine/original";
@@ -79,6 +79,8 @@ export class Engine {
   render(page: number, scale: number, cmyk: boolean, prio = 5, proof = false, key = "main") { return this.run<RenderOut>({ type: "render", page, scale, cmyk, proof, key }, prio); }
   compare(data: ArrayBuffer, key: string, onProgress: (p: Progress) => void) { return this.run<CompareResult>({ type: "compare", data, key }, 10, onProgress, [data]); }
   original(data: ArrayBuffer, name: string, key: string) { return this.run<OrigResult>({ type: "original", data, name, key }, 10, undefined, [data]); }
+  tac(key: string, pages: number[], limit: number, rgb: number[], onProgress: (p: Progress) => void) { return this.run<TacPage[]>({ type: "tac", key, pages, limit, rgb }, 10, onProgress); }
+  inspect(data: ArrayBuffer) { return this.run<Inspect>({ type: "inspect", data }, 10, undefined, [data]); }
   peek(data: ArrayBuffer) { return this.run<Peek>({ type: "peek", data }, 10, undefined, [data]); }
   has(key: string) { return this.run<boolean>({ type: "has", key }, 10); }
   dropThumbs() { this.queue = this.queue.filter(j => j.prio > 1); }

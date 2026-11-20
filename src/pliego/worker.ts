@@ -1,5 +1,5 @@
 // Web Worker: todo el procesamiento del PDF ocurre acá, en el navegador del usuario.
-import { analyze, render, compareWith, hasDoc, compareOriginalWith, sampleLangs, peek } from "./engine/analyze";
+import { analyze, render, compareWith, hasDoc, compareOriginalWith, sampleLangs, peek, inspect, tacDetail } from "./engine/analyze";
 import { DICTS, dictFor, Family } from "./engine/lang";
 import { FOGRA39_B64 } from "./assets/fogra39";
 import type { Speller } from "./engine/book";
@@ -72,6 +72,11 @@ self.onmessage = async (e: MessageEvent) => {
       post({ type: "done", out }, [out.rgba.buffer, ...(out.cmyk ? [out.cmyk.buffer] : []), ...(out.proof ? [out.proof.buffer] : [])]);
     } else if (msg.type === "original") {
       post({ type: "done", report: compareOriginalWith(new Uint8Array(msg.data), msg.name, msg.key ?? "main") });
+    } else if (msg.type === "tac") {
+      const res = tacDetail(msg.key ?? "main", msg.pages, msg.limit, msg.rgb ?? [], (d, t) => post({ type: "progress", progress: { stage: "Midiendo la tinta en detalle", page: d, pages: t, pct: t ? (d / t) * 100 : 100 } }));
+      post({ type: "done", report: res });
+    } else if (msg.type === "inspect") {
+      post({ type: "done", report: inspect(new Uint8Array(msg.data)) });
     } else if (msg.type === "peek") {
       post({ type: "done", report: peek(new Uint8Array(msg.data)) });
     } else if (msg.type === "has") {

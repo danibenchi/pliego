@@ -23,6 +23,8 @@ export interface Finding {
 export interface PageInfo {
   index: number; bounds: Rect; trim: Rect; bleed: Rect; hasTrim: boolean;
   wMm: number; hMm: number; tacMax: number; tacOverMm2: number;
+  /** resolución con que se midió la tinta total en esta página (ppi) y si la página tiene RGB */
+  tacPpi?: number; rgb?: boolean;
   plates: { c: number; m: number; y: number; k: number }; spots: string[]; tech: string[];
   blank: boolean; folio?: string; status: Sev; rotate: number;
 }
@@ -520,21 +522,12 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
       const area = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]);
       const FS = light ? RASTER : Math.min(FINE, Math.sqrt(FINE_MAX_PX / Math.max(1, area)));
       const fine = light ? ras : rasterCMYK(pdf, i, FS, color, pageRGB);
-      let over = 0, fmax = 0; let ob: Rect | null = null;
-      for (let y = 0; y < fine.h; y++) for (let x = 0; x < fine.w; x++) {
-        const o = (y * fine.w + x) * 4; const s = fine.px[o] + fine.px[o + 1] + fine.px[o + 2] + fine.px[o + 3];
-        if (s > fmax) fmax = s;
-        if (s > limit) {
-          over++;
-          const X = (x + fine.x0) / FS, Y = (y + fine.y0) / FS;
-          ob = ob ? [Math.min(ob[0], X), Math.min(ob[1], Y), Math.max(ob[2], X + 1 / FS), Math.max(ob[3], Y + 1 / FS)] : [X, Y, X + 1 / FS, Y + 1 / FS];
-        }
-      }
-      const pxMm = 25.4 / (72 * FS);
-      pi.tacOverMm2 = over * pxMm * pxMm;
-      pi.tacMax = Math.round(fmax / 2.55);
+      const m = measureTac(fine, FS, limit);
+      pi.tacOverMm2 = m.overMm2; pi.tacMax = m.max; pi.tacPpi = Math.round(FS * 72);
+      const ob = m.rect;
       if (pi.tacOverMm2 >= 4 && ob) add("tac", pi.tacOverMm2 > 100 ? "error" : "warn", "", i, ob, `Hasta ${pi.tacMax} % de tinta en ${fmtMm(pi.tacOverMm2)} mm² (límite ${system.tac} %)`);
     }
+    pi.rgb = pageRGB; if (!pi.tacPpi) pi.tacPpi = Math.round(RASTER * 72);
     if (mono && (cC + cM + cY) / tot > 0.002 && !findings.get("monoColor")?.pages.includes(i)) add("monoColor", "warn", "", i, bounds, "Esta página genera tinta en C, M o Y");
 
     // -- texto: cuerpo, negros, calados, zona segura, lomo --
@@ -688,7 +681,7 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
     mupdf.emptyStore();
   }
 
-  if (light) add("lightMode", "info", `El archivo es pesado para este equipo: la tinta total se midió a ${Math.round(RASTER * 72)} ppi en lugar de 150 ppi. El resto de los controles se hizo completo.`);
+  if (light) add("lightMode", "info", `El archivo es pesado para este equipo: la tinta total se midió a ${Math.round(RASTER * 72)} ppi en lugar de 150 ppi. El resto de los controles se hizo completo. Abrí este punto para medir la tinta en detalle, en todo el libro o en un rango de páginas.`);
   onProgress({ stage: "Revisando el libro", pct: 95 });
 
   // ---------- controles de documento ----------
@@ -910,7 +903,8 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
   const relevant = ["edge", "bleed", "safety", "tac", "imgPpi", "imgRgb", "rgbObjects", "spot", "registration", "whiteOverprint", "colorOverprint", "blackKnockout",
     "richBlackText", "knockoutText", "hairline", "pageSize", "trimbox", "jpeg", "shadingRgb", "spotDuplicate", "marksInBleed"];
   if (!cover) relevant.push("gutter"); if (mono) relevant.push("monoColor"); if (techList.length) relevant.push("techOverprint");
-  for (const c of relevant) if (!findings.has(c)) passed.add(c);
+  // en un archivo pesado la tinta se midió con poco detalle: no se da por superada
+  for (const c of relevant) if (!findings.has(c) && !(light && c === "tac")) passed.add(c);
 
   // textos de detalle
   for (const f of findings.values()) {
@@ -930,7 +924,8 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
       lineArt: `${pl(n, "dibujo")} de línea por debajo de ${system.lineArtPpi / 2} ppi (${where}).`,
       jpeg: `${pl(n, "imagen", "es")} con compresión JPEG por debajo de calidad 60 (${where}).`,
       bit16: `${pl(n, "imagen", "es")} de 16 bits por canal (${where}).`,
-      tac: `Zonas de más de 4 mm² por encima del ${system.tac} % de tinta total en ${where}. Máximo medido: ${Math.max(...f.pages.map(p => pages[p].tacMax))} %.`,
+      tac: `Zonas de más de 4 mm² por encima del ${system.tac} % de tinta total en ${where}. Máximo medido: ${Math.max(...f.pages.map(p => pages[p].tacMax))} %.` +
+        (light ? ` Medido a ${Math.round(RASTER * 72)} ppi porque el archivo es pesado: puede haber zonas chicas que no aparezcan. Para medirlo en detalle, abrí este punto.` : ""),
       edge: `Elementos que tocan el corte sin pasar al sangrado en ${where}.`,
       bleed: `El sangrado disponible es de ${f.items![0] ?? "0 mm"}; ${system.short} pide ${fmtMm(system.bleedMm)} mm (${where}).`,
       safety: (() => {
@@ -1031,6 +1026,47 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
 const sevRank = (s: Sev) => (s === "error" ? 3 : s === "warn" ? 2 : s === "info" ? 1 : 0);
 const order = (g: Group) => ["archivo", "paginas", "color", "imagenes", "texto", "libro", "aparato", "ortotipografia", "composicion"].indexOf(g);
 
+// ---------- tinta total ----------
+// Superficie por encima del límite (mm²), máximo (%) y rectángulo que encierra esas zonas.
+export function measureTac(r: Raster, scale: number, limit255: number): { overMm2: number; max: number; rect: Rect | null } {
+  let over = 0, fmax = 0; let ob: Rect | null = null;
+  for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
+    const o = (y * r.w + x) * 4; const s = r.px[o] + r.px[o + 1] + r.px[o + 2] + r.px[o + 3];
+    if (s > fmax) fmax = s;
+    if (s > limit255) {
+      over++;
+      const X = (x + r.x0) / scale, Y = (y + r.y0) / scale;
+      ob = ob ? [Math.min(ob[0], X), Math.min(ob[1], Y), Math.max(ob[2], X + 1 / scale), Math.max(ob[3], Y + 1 / scale)] : [X, Y, X + 1 / scale, Y + 1 / scale];
+    }
+  }
+  const pxMm = 25.4 / (72 * scale);
+  return { overMm2: over * pxMm * pxMm, max: Math.round(fmax / 2.55), rect: ob };
+}
+
+// Medición de la tinta total en detalle (150 ppi), a pedido y por las páginas que se elijan: sirve
+// después de una revisión adaptada a un archivo pesado, o para revisar un capítulo con más cuidado.
+// Usa el documento que ya quedó abierto de la revisión; libera memoria página por página.
+export interface TacPage { index: number; max: number; overMm2: number; rect: Rect | null; ppi: number }
+export function tacDetail(key: string, pages: number[], limitPct: number, rgbPages: number[], onProgress: (done: number, total: number) => void): TacPage[] {
+  const st = touch(key);
+  if (!st) throw new Error("Sin documento");
+  const out: TacPage[] = [];
+  const rgb = new Set(rgbPages);
+  pages.forEach((i, k) => {
+    onProgress(k, pages.length);
+    const pg = st.pdf.loadPage(i);
+    const b = pg.getBounds("MediaBox") as Rect; free(pg);
+    const area = (b[2] - b[0]) * (b[3] - b[1]);
+    const FS = Math.min(150 / 72, Math.sqrt(6e6 / Math.max(1, area)));
+    const r = rasterCMYK(st.pdf, i, FS, st.color, rgb.has(i));
+    const m = measureTac(r, FS, limitPct * 2.55);
+    out.push({ index: i, max: m.max, overMm2: m.overMm2, rect: m.rect, ppi: Math.round(FS * 72) });
+    mupdf.emptyStore();
+  });
+  onProgress(pages.length, pages.length);
+  return out;
+}
+
 // ---------- render para el visor ----------
 export interface RenderOut { w: number; h: number; scale: number; rgba: Uint8ClampedArray; cmyk?: Uint8ClampedArray; proof?: Uint8ClampedArray }
 
@@ -1070,15 +1106,56 @@ export function compareOriginalWith(data: Uint8Array, name: string, key = "main"
 }
 
 // Muestra de párrafos para decidir qué diccionarios cargar antes de revisar.
+function pageTextPlain(d: mupdf.Document, i: number): string {
+  const pg = d.loadPage(i); let st: any;
+  try { st = pg.toStructuredText(""); return st.asText(); } catch { return ""; } finally { free(st, pg); }
+}
+function langsOf(d: mupdf.Document, samples = 40): { family: Family; share: number }[] {
+  const n = d.countPages(), step = Math.max(1, Math.floor(n / samples)), paras: string[] = [];
+  for (let i = 0; i < n; i += step) {
+    for (const p of pageTextPlain(d, i).split(/\n\s*\n/)) { const x = p.replace(/\s+/g, " ").trim(); if (x.split(" ").length >= 8) paras.push(x); }
+  }
+  return detectMany(paras);
+}
 export function sampleLangs(data: Uint8Array): { family: Family; share: number }[] {
   const d = mupdf.Document.openDocument(data, "application/pdf");
+  try { return langsOf(d); } finally { try { d.destroy(); } catch { /* */ } }
+}
+
+// Vistazo antes de revisar: lo que el PDF dice de sí mismo (tintas, ISBN, idioma, formato), para
+// avisar si el perfil elegido no coincide antes de gastar una revisión completa. Mira una muestra
+// de páginas a baja resolución: tarda unos segundos aun en libros pesados.
+export interface Inspect extends Peek {
+  isbn: string | null; isbnCountry: string | null;
+  sampled: number; colorPages: number; langs: { family: Family; share: number }[];
+}
+export function inspect(data: Uint8Array): Inspect {
+  const d = mupdf.Document.openDocument(data, "application/pdf");
   try {
-    const n = d.countPages(), step = Math.max(1, Math.floor(n / 40)), paras: string[] = [];
-    for (let i = 0; i < n; i += step) {
-      const t = d.loadPage(i).toStructuredText("").asText();
-      for (const p of t.split(/\n\s*\n/)) { const x = p.replace(/\s+/g, " ").trim(); if (x.split(" ").length >= 8) paras.push(x); }
+    const base = peekDoc(d);
+    const n = base.pages;
+    // ISBN: páginas de créditos (al principio) y contratapa o colofón (al final)
+    let isbn: string | null = null;
+    for (const i of [...Array(Math.min(n, 8)).keys(), ...[...Array(Math.min(n, 4)).keys()].map(k => n - 1 - k)]) {
+      if (isbn) break;
+      const v = findIsbns(pageTextPlain(d, i)).find(x => x.length === 13 && isbnValid(x));
+      if (v) isbn = v;
     }
-    return detectMany(paras);
+    const isbnCountry = isbn ? Object.entries(ISBN_PREFIX).find(([, ps]) => ps.some(p => isbn!.startsWith(p)))?.[0] ?? null : null;
+    // color: hasta 12 páginas repartidas por el libro, a muy baja resolución
+    const picks = n <= 12 ? [...Array(n).keys()] : [...Array(12).keys()].map(k => Math.round(2 + (k * (n - 5)) / 11));
+    let colorPages = 0;
+    for (const i of picks) {
+      const pg = d.loadPage(i); let pix: any;
+      try {
+        pix = pg.toPixmap(mupdf.Matrix.scale(0.08, 0.08), mupdf.ColorSpace.DeviceCMYK, false, false, "View", "MediaBox");
+        const px = pix.getPixels(), nc = pix.getNumberOfComponents(); let c = 0;
+        for (let o = 0; o < px.length; o += nc) if (px[o] > 12 || px[o + 1] > 12 || px[o + 2] > 12) c++;
+        if (c / (px.length / nc) > 0.01) colorPages++;
+      } catch { /* página que no se puede dibujar: no cuenta */ } finally { free(pix, pg); }
+    }
+    mupdf.emptyStore();
+    return { ...base, isbn, isbnCountry, sampled: picks.length, colorPages, langs: base.cover ? [] : langsOf(d, 16) };
   } finally { try { d.destroy(); } catch { /* */ } }
 }
 
@@ -1086,7 +1163,10 @@ export function sampleLangs(data: Uint8Array): { family: Family; share: number }
 export interface Peek { pages: number; wMm: number; hMm: number; creator: string; producer: string; cover: boolean }
 export function peek(data: Uint8Array): Peek {
   const d = mupdf.Document.openDocument(data, "application/pdf");
-  try {
+  try { return peekDoc(d); } finally { try { d.destroy(); } catch { /* */ } }
+}
+function peekDoc(d: mupdf.Document): Peek {
+  {
     const n = d.countPages();
     const pg: any = d.loadPage(0);
     let b: number[] = pg.getBounds();
@@ -1094,6 +1174,8 @@ export function peek(data: Uint8Array): Peek {
     const w = (b[2] - b[0]) * 25.4 / 72, h = (b[3] - b[1]) * 25.4 / 72;
     const info = (d as any).getTrailer?.()?.get("Info");
     const str = (k: string) => { try { const v = info?.get(k); return v && !v.isNull() ? v.asString() : ""; } catch { return ""; } };
-    return { pages: n, wMm: w, hMm: h, creator: str("Creator"), producer: str("Producer"), cover: n <= 2 && w > h * 1.25 };
-  } finally { try { d.destroy(); } catch { /* */ } }
+    const out = { pages: n, wMm: w, hMm: h, creator: str("Creator"), producer: str("Producer"), cover: n <= 2 && w > h * 1.25 };
+    free(pg);
+    return out;
+  }
 }

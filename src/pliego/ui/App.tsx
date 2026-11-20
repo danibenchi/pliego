@@ -4,6 +4,8 @@ import type { Profile, Sev } from "../engine/profiles";
 import { crossCheck } from "../engine/cross";
 import { Engine, isOom } from "./client";
 import { Setup, CoverNeed } from "./Setup";
+import { compareProfile, PrecheckDialog, PreItem } from "./Precheck";
+import type { Inspect } from "../engine/analyze";
 import { Results, DiffState, OrigState } from "./Results";
 import { Gate, Logo, useAccess, Privacy, SevIcon } from "./bits";
 import { sha256, applyReview, loadReview, docKey } from "./review";
@@ -65,6 +67,7 @@ export function App() {
   const [icc, setIcc] = useState<{ data: ArrayBuffer; name: string } | null>(null);
   const [engineState, setEngineState] = useState(engine.state);
   const [forceLight, setForceLight] = useState(false);
+  const [pre, setPre] = useState<{ items: PreItem[]; go: (p: Profile) => void } | null>(null);
   const [lightRun, setLightRun] = useState(false);
   useEffect(() => { engine.onState = setEngineState; setEngineState(engine.state); }, [engine]);
 
@@ -136,21 +139,39 @@ export function App() {
     const big = pdfs.map(tooBig).find(Boolean);
     if (big) { setError(big); return; }
     await engine.ready;
-    let peeks;
-    // un archivo de más de 150 MB es un interior (ninguna cubierta pesa tanto): se evita abrirlo dos veces
-    try { peeks = await Promise.all(pdfs.map(async f => f.size > 150e6 ? { pages: 0, wMm: 0, hMm: 0, creator: "", producer: "", cover: false } : engine.peek(await f.arrayBuffer()))); }
-    catch { setError("No pude leer este PDF. Puede estar dañado, protegido o no ser un PDF válido."); return; }
+    // vistazo antes de revisar: qué es cada archivo y si el perfil coincide con lo que muestra
+    setFiles({ interior: pdfs[0], cubierta: pdfs[1] }); setView("run"); setSince(performance.now());
+    setProgress({ stage: "Mirando el PDF antes de revisar", pct: 1 });
+    let looks: Inspect[];
+    try { looks = []; for (const f of pdfs) looks.push(await engine.inspect(await f.arrayBuffer())); }
+    catch (e) {
+      setProgress(null); setView("setup");
+      setError(isOom(e) ? OOM_MSG : "No pude leer este PDF. Puede estar dañado, protegido o no ser un PDF válido."); return;
+    }
+    let plan: Pending | null = null, needCover = false;
     if (pdfs.length === 2) {
-      const ci = peeks.findIndex(x => x.cover);
-      if (ci >= 0 && !peeks[1 - ci].cover) return run({ interior: pdfs[1 - ci], cubierta: pdfs[ci] });
-      return runBatch(pdfs);
-    }
-    if (peeks[0].cover) {
-      if (profile.trimW && (profile.interiorPages || profile.spineMm)) return run({ cubierta: pdfs[0] });
-      setCoverNeed({ file: pdfs[0], peekW: peeks[0].wMm, peekH: peeks[0].hMm });
-      return;
-    }
-    return run({ interior: pdfs[0] });
+      const ci = looks.findIndex(x => x.cover);
+      if (ci >= 0 && !looks[1 - ci].cover) plan = { interior: pdfs[1 - ci], cubierta: pdfs[ci] };
+      else { setProgress(null); return runBatch(pdfs); }
+    } else if (looks[0].cover) { plan = { cubierta: pdfs[0] }; needCover = true; }
+    else plan = { interior: pdfs[0] };
+    const go = (prof: Profile) => {
+      setPre(null);
+      if (prof !== profile) setProfile(prof);
+      if (needCover && !(prof.trimW && (prof.interiorPages || prof.spineMm))) {
+        setProgress(null); setView("setup");
+        setCoverNeed({ file: pdfs[0], peekW: looks[0].wMm, peekH: looks[0].hMm });
+        return;
+      }
+      run(plan!, prof);
+    };
+    const items = compareProfile(profile, [
+      ...(plan.interior ? [{ piece: "interior" as const, insp: looks[pdfs.indexOf(plan.interior)] }] : []),
+      ...(plan.cubierta ? [{ piece: "cubierta" as const, insp: looks[pdfs.indexOf(plan.cubierta)] }] : []),
+    ]);
+    if (!items.length) return go(profile);
+    setProgress({ stage: "Antes de revisar, confirmá el perfil", pct: 1 });
+    setPre({ items, go });
   };
 
   const run = async (p: Pending, prof = profile) => {
@@ -226,6 +247,7 @@ export function App() {
         onCoverReady={() => coverNeed && run({ cubierta: coverNeed.file })} onCoverCancel={() => setCoverNeed(null)}
         error={error || (engineState === "error" ? "El motor de análisis no pudo arrancar en este navegador. Probá con Chrome, Edge, Firefox o Safari actualizados." : "")} engineState={engineState} icc={icc} setIcc={setIcc} />}
 
+      {pre && <PrecheckDialog profile={profile} items={pre.items} onRun={pre.go} onCancel={() => { setPre(null); setProgress(null); setView("setup"); }} />}
       {view === "run" && progress && (
         <main className="running" aria-live="polite">
           <div className="press">
@@ -244,6 +266,7 @@ export function App() {
           orig={origs[active]} setOrig={o => setOrigs(s => ({ ...s, [active]: o }))}
           onReset={() => { setView("setup"); setReports({}); setBatch(null); }}
           onAddCover={files.interior && !files.cubierta && report.profile.piece === "interior" ? f => run({ interior: files.interior, cubierta: f }) : undefined}
+          onPatch={r => setReports(s => ({ ...s, [active]: r }))}
           onRerun={batch ? undefined : patch => {
             const n: Profile = { ...profile, ...patch };
             if (patch.inks) { n.colorMode = patch.inks === "4" || patch.inks === "4+" ? "cmyk" : "mono"; }

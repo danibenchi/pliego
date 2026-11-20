@@ -30,3 +30,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Pliego: capturas de pruebas
+shots/
+test-pliego/*.mjs
