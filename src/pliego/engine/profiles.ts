@@ -51,7 +51,7 @@ export const CONTENTS: ContentType[] = [
   { id: "infantil", name: "Infantil / álbum ilustrado", colorMode: "cmyk", safetyMm: 8, gutterMm: 15, hint: "Dobles páginas a sangre: el texto nunca debe caer en el pliegue." },
   { id: "comic", name: "Cómic / novela gráfica", colorMode: "cmyk", safetyMm: 6, gutterMm: 12, hint: "Negros intensos y globos de texto: cuidado con el negro compuesto en letra chica." },
   { id: "arte", name: "Arte / fotografía", colorMode: "cmyk", safetyMm: 6, gutterMm: 15, ppiBoost: 1, hint: "La reproducción manda: resolución y cobertura de tinta al límite." },
-  { id: "escolar", name: "Escolar / texto", colorMode: "cmyk", safetyMm: 6, gutterMm: 12, hint: "Muchos colores planos, tablas y cuerpos chicos: el registro es clave." },
+  { id: "escolar", name: "Escolar / texto", colorMode: "cmyk", safetyMm: 5, gutterMm: 12, hint: "Muchos colores planos, tablas y cuerpos chicos: el registro es clave." },
   { id: "cocina", name: "Cocina / práctico", colorMode: "cmyk", safetyMm: 6, gutterMm: 12, hint: "Fotografía a sangre y fondos de color en papel estucado." },
 ];
 

@@ -244,6 +244,11 @@ export function App() {
           orig={origs[active]} setOrig={o => setOrigs(s => ({ ...s, [active]: o }))}
           onReset={() => { setView("setup"); setReports({}); setBatch(null); }}
           onAddCover={files.interior && !files.cubierta && report.profile.piece === "interior" ? f => run({ interior: files.interior, cubierta: f }) : undefined}
+          onRerun={batch ? undefined : patch => {
+            const n: Profile = { ...profile, ...patch };
+            if (patch.inks) { n.colorMode = patch.inks === "4" || patch.inks === "4+" ? "cmyk" : "mono"; }
+            setProfile(n); run(files, n);
+          }}
           onProfile={() => { setView("setup"); }} onBack={batch ? () => setView("batch") : undefined} />
       )}
 

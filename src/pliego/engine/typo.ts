@@ -23,8 +23,11 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
   const paras: Para[] = [];
   for (const p of pages) {
     const byBlock = new Map<number, Line[]>();
-    for (const l of p.lines) { if (band(p, l)) continue; const b = byBlock.get(l.block); if (b) b.push(l); else byBlock.set(l.block, [l]); }
+    for (const l of p.lines) { const b = byBlock.get(l.block); if (b) b.push(l); else byBlock.set(l.block, [l]); }
     for (const ls of byBlock.values()) {
+      // las cabeceras y los folios quedan afuera, salvo que la línea sea parte de un bloque del texto
+      // (un título de dos líneas que empieza arriba de todo)
+      if (ls.every(l => band(p, l))) continue;
       let text = "";
       for (const l of ls) text = text && /\p{L}-$/u.test(text) && /^\p{Ll}/u.test(l.text) ? text.slice(0, -1) + l.text : text ? text + " " + l.text : l.text;
       paras.push({ page: p.index, text, lines: ls });
@@ -41,6 +44,9 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
   const hits = new Map<string, { page: number; r: R; item: string }[]>();
   const hit = (k: string, pa: Para, i: number, what: string) => { const l = hits.get(k) ?? []; if (l.length < 80) l.push({ page: pa.page, r: rectAt(pa, i), item: `Pág. ${pa.page + 1}: ${what} «${snip(pa.text, i)}»` }); hits.set(k, l); };
   let latin = 0, english = 0, straight = 0;
+  let openQ = false, openE = false, prevPage = -1;
+  // contexto de fórmula o de unidades (m . c . ∆t, J/kg . K, te - t2): ahí el punto y el guion son operadores
+  const mathy = (t: string, i: number) => /[=∆Δ°×·/+]|\d/.test(t.slice(Math.max(0, i - 12), i + 12));
   for (const pa of paras) {
     const t = pa.text;
     latin += (t.match(/[«»]/g) ?? []).length; english += (t.match(/[“”]/g) ?? []).length;
@@ -49,10 +55,10 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
     // diálogo: guion o semirraya al comienzo de párrafo, o raya separada del parlamento
     if (/^[-–]\s?\p{L}/u.test(t)) hit("dialogDash", pa, 0, "diálogo con guion en lugar de raya:");
     if (/^—\s+\p{L}/u.test(t)) hit("dialogDash", pa, 0, "espacio después de la raya de diálogo:");
-    for (const m of t.matchAll(/\p{L} - \p{L}/gu)) hit("dialogDash", pa, m.index! + 1, "guion entre espacios (¿raya o semirraya?):");
+    for (const m of t.matchAll(/\p{L} - \p{L}/gu)) if (!mathy(t, m.index!)) hit("dialogDash", pa, m.index! + 1, "guion entre espacios (¿raya o semirraya?):");
     for (const m of t.matchAll(/\p{L}[,.;:!?»)]?\s—\s\p{L}/gu)) if (!/^—/.test(t.slice(m.index!))) hit("dialogDash", pa, m.index! + 2, "raya de inciso con espacios a los dos lados:");
     // espacios mal puestos
-    if (!/(\s\.){3}/.test(t)) for (const m of t.matchAll(/\p{L}\s+[,.;:!?](?!\.\.)/gu)) hit("spacing", pa, m.index! + 1, "espacio antes del signo:");
+    if (!/(\s\.){3}/.test(t)) for (const m of t.matchAll(/\p{L}\s+[,.;:!?](?!\.\.)/gu)) if (!mathy(t, m.index!)) hit("spacing", pa, m.index! + 1, "espacio antes del signo:");
     for (const m of t.matchAll(/[¿¡(«]\s+\p{L}|\p{L}\s+[)»]/gu)) hit("spacing", pa, m.index! + 1, "espacio de más junto al signo:");
     for (const m of t.matchAll(/\p{Ll}[,;:]\p{L}|\p{Ll}[.?!]\p{Lu}\p{Ll}/gu)) if (!/^(?:www|http)/.test(t.slice(Math.max(0, m.index! - 8)))) hit("spacing", pa, m.index! + 1, "falta espacio después del signo:");
     // puntuación doble
@@ -60,11 +66,25 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
     for (const m of t.matchAll(/,,|;;|::/g)) hit("punctuation", pa, m.index!, "signo duplicado:");
     // signos de apertura en español
     if (o.spanish) {
-      for (const s of t.split(/(?<=[.!?…»])\s+(?=[¿¡«—\p{Lu}])/u)) {
-        const q = s.indexOf("?"), e = s.indexOf("!");
-        if (q > 0 && !s.includes("¿")) hit("openingMarks", pa, t.indexOf(s) + q, "falta el signo de apertura ¿:");
-        if (e > 0 && !s.includes("¡")) hit("openingMarks", pa, t.indexOf(s) + e, "falta el signo de apertura ¡:");
-      }
+      if (pa.page !== prevPage) { openQ = openE = false; prevPage = pa.page; }
+      // también vale un bloque de la misma página que termina justo arriba con la pregunta abierta
+      // (las sangrías francesas y los recuadros parten un mismo párrafo en dos bloques)
+      const f0 = pa.lines[0].r, h0 = Math.max(4, f0[3] - f0[1]);
+      const above = (sign: string, close: string) => paras.some(o => o !== pa && o.page === pa.page && o.text.lastIndexOf(sign) > o.text.lastIndexOf(close) && (() => {
+        const lr = o.lines[o.lines.length - 1].r;
+        return lr[1] < f0[1] - h0 * 0.3 && lr[3] <= f0[1] + h0 * 0.6 && f0[1] - lr[3] < h0 * 1.6 && lr[0] < f0[2] && f0[0] < lr[2];
+      })());
+      if (!openQ) openQ = above("¿", "?");
+      if (!openE) openE = above("¡", "!");
+      const segs = t.split(/(?<=[.!?…»])\s+(?=[¿¡«—\p{Lu}])/u);
+      segs.forEach((s, k) => {
+        const q = s.search(/\?(?=\s|$|[»”)"’.,;:])/), e = s.search(/!(?=\s|$|[»”)"’.,;:])/);
+        // una pregunta que empezó en el bloque anterior (sangría francesa, columnas) ya tiene su ¿
+        const carriedQ = k === 0 && openQ, carriedE = k === 0 && openE;
+        if (q > 0 && !s.includes("¿") && !carriedQ && !/https?:|www\.|\.(com|org|ar|es|net)\b/.test(s)) hit("openingMarks", pa, t.indexOf(s) + q, "falta el signo de apertura ¿:");
+        if (e > 0 && !s.includes("¡") && !carriedE) hit("openingMarks", pa, t.indexOf(s) + e, "falta el signo de apertura ¡:");
+      });
+      openQ = t.lastIndexOf("¿") > t.lastIndexOf("?"); openE = t.lastIndexOf("¡") > t.lastIndexOf("!");
     }
     // comillas y paréntesis sin cerrar en el mismo párrafo (salvo comillas de seguir)
     const op = (t.match(/«/g) ?? []).length, cl = (t.match(/»/g) ?? []).length;
@@ -171,13 +191,18 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
   for (const p of pages) {
     for (const l of p.lines) {
       if (band(p, l)) continue;
-      if (small(p, l)) { const m = l.text.match(/^(\d{1,3})[.\s)]/); if (m) (notesByPage.get(p.index) ?? notesByPage.set(p.index, []).get(p.index)!).push({ n: +m[1], r: l.r }); continue; }
+      const low = l.r[1] > p.trim[1] + (p.trim[3] - p.trim[1]) * 0.55;
+      if (small(p, l)) { const m = l.text.match(/^(\d{1,3})[.\s)]/); if (m && low) (notesByPage.get(p.index) ?? notesByPage.set(p.index, []).get(p.index)!).push({ n: +m[1], r: l.r }); continue; }
       for (const w of l.words) { const m = w.t.match(/^\p{L}{2,}[.,;:!?»”)]?(\d{1,3})[.,;:]?$/u); if (m) (callsByPage.get(p.index) ?? callsByPage.set(p.index, []).get(p.index)!).push({ n: +m[1], r: w.r }); }
     }
   }
   const allNotes = [...notesByPage.entries()].flatMap(([pg, l]) => l.map(x => ({ ...x, page: pg }))).sort((a, b) => a.page - b.page || a.r[1] - b.r[1]);
-  ran.push("noteSeq", "noteCallout");
-  if (allNotes.length >= 3) {
+  // ¿hay notas al pie de verdad? Si la mayoría de esos números no tiene su llamada en la página,
+  // son otra cosa (actividades numeradas, listas, epígrafes): no se revisa como aparato.
+  const matched = allNotes.filter(nt => (callsByPage.get(nt.page) ?? []).some(c => c.n === nt.n)).length;
+  const hasNotes = allNotes.length >= 3 && matched >= Math.max(2, allNotes.length * 0.5);
+  if (hasNotes) ran.push("noteSeq", "noteCallout");
+  if (hasNotes) {
     const seq: { page: number; r: R; item: string }[] = [];
     for (let k = 1; k < allNotes.length; k++) {
       const a = allNotes[k - 1], b = allNotes[k];

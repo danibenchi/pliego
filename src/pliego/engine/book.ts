@@ -109,7 +109,11 @@ export function bookChecks(pages: PageText[], o: BookOptions, add: Add): BookRes
   // título del libro: la línea más grande de las primeras páginas
   let title: string | null = null;
   { let bestSize = 0; for (const p of pages.slice(0, 6)) for (const l of p.lines) if (l.size > bestSize && l.text.length > 2) { bestSize = l.size; title = l.text; } }
-  const bodyChapters = chapters.filter(c => c.page > 3);
+  const bodyChapters0 = chapters.filter(c => c.page > 3);
+  // Si «capítulos» aparecen en una de cada pocas páginas, lo que se detectó son títulos de sección
+  // (libros de texto, prácticos): los controles que dependen de los capítulos no son confiables.
+  const chaptersReliable = bodyChapters0.length <= Math.max(15, pages.length * 0.12);
+  const bodyChapters = chaptersReliable ? bodyChapters0 : [];
   // capítulos en impar: si el perfil lo pide, o si la mayoría del libro lo hace (y entonces las excepciones se señalan)
   const oddShare = bodyChapters.length ? bodyChapters.filter(c => c.page % 2 === 0).length / bodyChapters.length : 0;
   const ruleOdd = o.chaptersOdd === true || (o.chaptersOdd === "auto" && bodyChapters.length >= 3 && oddShare >= 0.75 && oddShare < 1);
@@ -220,7 +224,7 @@ export function bookChecks(pages: PageText[], o: BookOptions, add: Add): BookRes
   const spelling: BookResult["spelling"] = { checked: false, words: 0, unknown: 0 };
   {
     // texto corrido con las palabras cortadas en fin de línea reunidas
-    type Tok = { w: string; page: number; r: R; sentenceStart: boolean; afterPunct: boolean; lang: Family | null };
+    type Tok = { w: string; page: number; r: R; sentenceStart: boolean; afterPunct: boolean; lang: Family | null; block: number };
     const toks: Tok[] = [];
     let carry: { w: string; page: number; r: R } | null = null;
     let prevEnd = true, prevPunct = true, lang: Family | null = null;
@@ -243,7 +247,7 @@ export function bookChecks(pages: PageText[], o: BookOptions, add: Add): BookRes
           const isLastHy = k === ws.length - 1 && /\p{Ll}-$/u.test(raw);
           if (isLastHy) { carry = { w: raw.slice(0, -1), page: i, r }; continue; }
           const parts = raw.split(NL).map(x => x.replace(/^·+|·+$/g, "")).filter(Boolean);
-          parts.forEach((w, j) => toks.push({ w, page: i, r, lang, sentenceStart: prevEnd, afterPunct: j === 0 ? (prevPunct || !L.test(raw[0] ?? "")) : true }));
+          parts.forEach((w, j) => toks.push({ w, page: i, r, lang, block: l.block, sentenceStart: prevEnd, afterPunct: j === 0 ? (prevPunct || !L.test(raw[0] ?? "")) : true }));
           prevEnd = /[.!?¡¿…:»—]$/.test(raw) || /^[—¿¡«]/.test(raw);
           prevPunct = !L.test(raw[raw.length - 1] ?? "");
         }
@@ -251,10 +255,18 @@ export function bookChecks(pages: PageText[], o: BookOptions, add: Add): BookRes
     }
     const lower = toks.map(t => t.w.toLowerCase());
     spelling.words = toks.length;
-    // palabras repetidas
+    // palabras repetidas: tienen que ser vecinas en el mismo párrafo (en tablas, esquemas y columnas
+    // dos rótulos iguales pueden quedar uno al lado del otro sin ser una errata)
+    const adjacent = (a: Tok, b: Tok) => {
+      if (a.block !== b.block) return false;
+      const h = Math.max(a.r[3] - a.r[1], b.r[3] - b.r[1], 1);
+      const sameLine = Math.abs((a.r[1] + a.r[3]) / 2 - (b.r[1] + b.r[3]) / 2) < h * 0.5;
+      if (sameLine) return b.r[0] - a.r[2] < h * 1.2 && b.r[0] >= a.r[2] - 1;
+      return b.r[1] > a.r[1] && b.r[1] - a.r[3] < h * 1.5 && b.r[0] < a.r[0];
+    };
     let reps = 0;
     for (let k = 1; k < toks.length; k++) {
-      if (lower[k] === lower[k - 1] && !toks[k].afterPunct && lower[k].length > 1 && !/^(no|sí|si|muy|ja|je|bla|tan|que|nous|vous|sehr|very|had|that)$/.test(lower[k]) && toks[k].page === toks[k - 1].page && reps < 60) {
+      if (lower[k] === lower[k - 1] && !toks[k].afterPunct && lower[k].length > 1 && !/^(no|sí|si|muy|ja|je|bla|tan|que|nous|vous|sehr|very|had|that)$/.test(lower[k]) && toks[k].page === toks[k - 1].page && reps < 60 && adjacent(toks[k - 1], toks[k])) {
         reps++; add("repeatedWord", "warn", "", toks[k].page, toks[k].r, `«${toks[k - 1].w} ${toks[k].w}»`, `«${toks[k - 1].w} ${toks[k].w}» en ${P(toks[k].page)}`);
       }
     }

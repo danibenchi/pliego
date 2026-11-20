@@ -40,6 +40,8 @@ export interface Report {
   spots: string[]; technical: string[]; layers: { name: string; hidden: boolean }[];
   book?: BookResult; coverGeo?: CoverGeometry & { x0: number; y0: number }; barcode?: BarcodeInfo | null;
   coverTitle?: string | null; key: string; hash?: string;
+  /** datos del perfil que no coinciden con lo que muestra el PDF, para proponer otra revisión */
+  suggest?: { inks?: "4"; country?: string; reasons: string[] };
 }
 
 const PT = 25.4 / 72;
@@ -66,6 +68,17 @@ const overlaps = (a: Rect, b: Rect) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3]
 
 interface ColorClass { kind: "gray" | "rgb" | "cmyk" | "spot" | "lab" | "other"; neutral: boolean; cmyk?: number[]; spots: string[]; registration: boolean; white: boolean; light: boolean; deviceRGB: boolean }
 
+// Nombres de colorantes de un espacio Separation o DeviceN, tal como los da MuPDF:
+// «Separation(ICCBased(CMYK,PSO Coated v3),All)» o «DeviceN(3,DeviceCMYK,Cyan,Magenta,Yellow)».
+// El espacio alternativo puede traer comas y paréntesis propios: se separa solo en el primer nivel.
+function colorants(raw: string): string[] {
+  const s = raw.replace(/^(Separation|DeviceN)\(/, "").replace(/\)$/, "");
+  const parts: string[] = []; let depth = 0, cur = "";
+  for (const ch of s) { if (ch === "(") depth++; if (ch === ")") depth--; if (ch === "," && depth === 0) { parts.push(cur); cur = ""; } else cur += ch; }
+  parts.push(cur);
+  return parts.map(x => x.trim()).filter(x => x && !/^\d+$/.test(x) && !/^(Device|ICCBased|Cal|Lab|Indexed)/.test(x) && !x.includes("("));
+}
+
 function classify(cs: mupdf.ColorSpace, color: number[]): ColorClass {
   const type = cs.getType();
   const base: ColorClass = { kind: "other", neutral: true, spots: [], registration: false, white: false, light: false, deviceRGB: false };
@@ -79,15 +92,14 @@ function classify(cs: mupdf.ColorSpace, color: number[]): ColorClass {
     return { ...base, kind: "cmyk", neutral, cmyk: color, registration: c > 0.99 && m > 0.99 && y > 0.99 && k > 0.99, white: c + m + y + k < 0.004, light: c + m + y + k < 0.1 };
   }
   if (type === "Separation") {
-    const name = cs.getName().replace(/^Separation\((?:[^,]*,)?/, "").replace(/\)$/, "");
+    const name = colorants(cs.getName()).pop() ?? "";
     if (/^all$/i.test(name)) return { ...base, kind: "spot", registration: color[0] > 0.99, neutral: false };
     if (/^none$/i.test(name)) return base;
     const process = /^(cyan|magenta|yellow|black)$/i.test(name);
     return { ...base, kind: process ? "cmyk" : "spot", neutral: /^black$/i.test(name), spots: process ? [] : [name], white: (color[0] ?? 1) < 0.004 };
   }
   if (cs.isDeviceN()) {
-    const raw = cs.getName();
-    const names = (raw.match(/\(([^)]*)\)/)?.[1] ?? raw).split(",").map(s => s.trim()).filter(n => n && !/^(Device|ICC|Cal)/.test(n));
+    const names = colorants(cs.getName());
     const spots = names.filter(n => !/^(cyan|magenta|yellow|black|none|all)$/i.test(n));
     return { ...base, kind: spots.length ? "spot" : "cmyk", neutral: false, spots };
   }
@@ -362,6 +374,19 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
     };
     const shadeRects: Rect[] = [];
     const owned: any[] = [];
+    // ¿El trazado pasa por dentro de la caja de corte? Las marcas de corte suelen ir en un solo
+    // trazado que cubre las cuatro esquinas: su rectángulo envolvente cruza la página, pero el
+    // trazado no entra en la página. Se recorre y se mira cada punto y el medio de cada segmento.
+    const entersTrim = (path: any, ctm: number[]) => {
+      const t = [trim[0] + 1, trim[1] + 1, trim[2] - 1, trim[3] - 1];
+      const T = (x: number, y: number) => [ctm[0] * x + ctm[2] * y + ctm[4], ctm[1] * x + ctm[3] * y + ctm[5]];
+      const inside = (x: number, y: number) => x > t[0] && x < t[2] && y > t[1] && y < t[3];
+      let hit = false, px = 0, py = 0, n = 0;
+      const to = (x: number, y: number, move = false) => { const [X, Y] = T(x, y); if (inside(X, Y) || (!move && inside((X + px) / 2, (Y + py) / 2))) hit = true; px = X; py = Y; n++; };
+      try { path.walk({ moveTo(x: number, y: number) { to(x, y, true); }, lineTo(x: number, y: number) { to(x, y); }, curveTo(_a: number, _b: number, _c: number, _d: number, x: number, y: number) { to(x, y); }, closePath() { } }); }
+      catch { return true; }
+      return hit || n === 0;
+    };
     const dev = new mupdf.Device({
       clipPath(path: any, _eo: boolean, ctm: any) { pushClip(path.getBounds(ss, ctm)); },
       clipStrokePath(path: any, st: any, ctm: any) { pushClip(path.getBounds(st, ctm)); },
@@ -376,7 +401,9 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
         if (alpha < 0.999) transparency++;
         const raw = path.getBounds(ss, ctm) as Rect;
         const rect = clipNow(raw);
-        colorUse(classify(cs, color), rect, "Relleno");
+        const fcc = classify(cs, color);
+        if (fcc.registration && !entersTrim(path, ctm)) fcc.registration = false;
+        colorUse(fcc, rect, "Relleno");
         // posible texto en contornos: trazados chicos con muchas curvas
         if (!rect) return;
         const h = raw[3] - raw[1], w = raw[2] - raw[0];
@@ -392,6 +419,7 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
         if (alpha < 0.999) transparency++;
         const rect = clipNow(path.getBounds(st, ctm));
         const cc = classify(cs, color);
+        if (cc.registration && !entersTrim(path, ctm)) cc.registration = false;
         colorUse(cc, rect, "Línea");
         if (!rect || cc.white) return;
         const scale = Math.sqrt(Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2]));
@@ -891,7 +919,12 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
     const where = f.pages.length ? pageList(f.pages) : "todo el documento";
     const pl = (k: number, s: string, p = "s") => `${k} ${s}${k !== 1 ? p : ""}`;
     const D: Record<string, string> = {
-      imgPpi: `${pl(n, "imagen", "es")} por debajo de ${minPpi} ppi efectivos (${where}).`,
+      imgPpi: (() => {
+        const ppiOf = (l: string) => +(l.match(/(\d+) ppi/)?.[1] ?? 0);
+        const low = f.marks.filter(m => ppiOf(m.label) < hardPpi).length;
+        const base = `${pl(n, "imagen", "es")} por debajo de ${minPpi} ppi efectivos (${where}).`;
+        return low && low < n ? `${base} De ellas, ${low} por debajo de ${hardPpi} ppi, que es lo que más se va a notar.` : base;
+      })(),
       imgRgb: `${pl(n, "imagen", "es")} en RGB (${where}).${color.space ? ` Se convierten con ${color.name}.` : ""}`,
       imgHeavy: `${pl(n, "imagen", "es")} por encima de 800 ppi (${where}).`,
       lineArt: `${pl(n, "dibujo")} de línea por debajo de ${system.lineArtPpi / 2} ppi (${where}).`,
@@ -900,7 +933,18 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
       tac: `Zonas de más de 4 mm² por encima del ${system.tac} % de tinta total en ${where}. Máximo medido: ${Math.max(...f.pages.map(p => pages[p].tacMax))} %.`,
       edge: `Elementos que tocan el corte sin pasar al sangrado en ${where}.`,
       bleed: `El sangrado disponible es de ${f.items![0] ?? "0 mm"}; ${system.short} pide ${fmtMm(system.bleedMm)} mm (${where}).`,
-      safety: `${pl(n, "bloque")} de texto a menos de ${content.safetyMm} mm del corte (${where}).`,
+      safety: (() => {
+        // folios, cabeceras y pestañas de la maqueta se repiten en el mismo lugar de muchas páginas:
+        // se cuentan aparte para que no tapen los casos sueltos
+        const key = (m: { page: number; rect: Rect }) => `${m.page % 2}:${Math.round(m.rect[0] / 6)}:${Math.round(m.rect[1] / 6)}`;
+        const cnt = new Map<string, Set<number>>();
+        for (const m of f.marks) { const k = key(m); (cnt.get(k) ?? cnt.set(k, new Set()).get(k)!).add(m.page); }
+        const rep = f.marks.filter(m => cnt.get(key(m))!.size >= 5), loose = f.marks.filter(m => cnt.get(key(m))!.size < 5);
+        if (!rep.length) return `${pl(n, "bloque")} de texto a menos de ${content.safetyMm} mm del corte (${where}).`;
+        const repPages = new Set(rep.map(m => m.page)).size;
+        const looseTxt = loose.length ? `${pl(loose.length, "bloque")} de texto suelto a menos de ${content.safetyMm} mm del corte (${pageList(loose.map(m => m.page))}), y ` : "";
+        return `${looseTxt}${loose.length ? "e" : "E"}lementos de la maqueta que se repiten (folios, cabeceras o pestañas) a menos de ${content.safetyMm} mm del corte en ${pl(repPages, "página")}. Si están ahí a propósito, confirmá con la imprenta su tolerancia de corte.`;
+      })(),
       gutter: `${pl(n, "bloque")} de texto a menos de ${content.gutterMm} mm del lomo (${where}).`,
       monoColor: `El perfil indica un interior a una tinta, pero hay elementos en color en ${where}.`,
       spot: `Tintas planas encontradas: ${f.items!.join(", ")} (${where}).`,
@@ -947,7 +991,7 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
       runningHead: `${pl(f.items!.length, "cabecera")} que nombra${f.items!.length !== 1 ? "n" : ""} otro capítulo:`,
       toc: f.items!.length > 1 ? `${pl(f.items!.length, "entrada")} del índice no coincide${f.items!.length !== 1 ? "n" : ""} con la página real:` : f.items![0] ?? "",
     };
-    if (D[f.check]) { f.detail = D[f.check]; if (["bleed", "spot", "technical", "layers", "techOverprint", "annots", "hiddenLayers"].includes(f.check)) f.items = []; if (f.check === "spelling" && f.items!.length === 1) f.items = []; if (f.check === "toc" && f.items!.length === 1) f.items = []; }
+    if (D[f.check]) { f.detail = f.marks.length >= 400 ? D[f.check].replace(/^400 /, "Más de 400 ") : D[f.check]; if (["bleed", "spot", "technical", "layers", "techOverprint", "annots", "hiddenLayers"].includes(f.check)) f.items = []; if (f.check === "spelling" && f.items!.length === 1) f.items = []; if (f.check === "toc" && f.items!.length === 1) f.items = []; }
     else if (f.detail) { /* ya trae su resumen */ }
     else if (f.items && f.items.length) { f.detail = f.items[0]; f.items = f.items.slice(1); }
   }
@@ -960,6 +1004,14 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
   const counts = { error: 0, warn: 0, info: 0 };
   list.forEach(f => { if (f.sev !== "ok") counts[f.sev]++; });
   const verdict: Sev = counts.error ? "error" : counts.warn ? "warn" : "ok";
+  // ¿el perfil elegido se corresponde con el libro? (tintas, país del ISBN)
+  const suggest: NonNullable<Report["suggest"]> = { reasons: [] };
+  if (mono && !cover) {
+    const colorPages = pages.filter(p => p.plates.c + p.plates.m + p.plates.y > 0.01).length;
+    if (colorPages >= Math.max(3, nPages * 0.5)) { suggest.inks = "4"; suggest.reasons.push(`${colorPages} de ${nPages} páginas tienen color`); }
+  }
+  const isbnLand = valid13.length ? Object.entries(ISBN_PREFIX).find(([, ps]) => ps.some(p => valid13[0].value.startsWith(p)))?.[0] : undefined;
+  if (isbnLand && isbnLand !== profile.country) { suggest.country = isbnLand; suggest.reasons.push(`el ISBN ${valid13[0].value} es de ${COUNTRY_NAME[isbnLand]}`); }
   keepDoc(colorIn?.key ?? "main", { doc, pdf, color, texts, bytes: data.length });
   onProgress({ stage: "Listo", pct: 100 });
   return {
@@ -971,7 +1023,7 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
     fonts: fontList, isbns, counts, verdict, ms: Math.round(performance.now() - t0), spine,
     pdfxCheck: { target: pdfx ?? target, declared: !!pdfx, rules },
     color: { name: color.name, source: color.source, softProof: !!color.space },
-    spots: [...allSpots.keys()], technical: techList, layers,
+    spots: [...allSpots.keys()], technical: techList, layers, suggest: suggest.reasons.length ? suggest : undefined,
     book, coverGeo, barcode, coverTitle, key: colorIn?.key ?? "main",
   };
 }

@@ -25,7 +25,7 @@ const VERDICT: Record<Sev, { t: string; s: string }> = {
 export interface OrigState { status: "running" | "done" | "error"; name: string; findings: Finding[]; sum?: Omit<OrigResult, "findings">; message?: string }
 export interface DiffState { status: "running" | "done" | "error"; pct: number; name: string; findings: Finding[]; prevPages: number; message?: string; corr?: CorrSummary; corrFindings?: Finding[] }
 
-export function Results({ engine, report: base, since, diff, setDiff, orig, setOrig, onReset, onProfile, onBack, onAddCover }: { engine: Engine; report: Report; since: number | null; diff?: DiffState; setDiff: (d: DiffState) => void; orig?: OrigState; setOrig: (o: OrigState) => void; onAddCover?: (f: File) => void; onReset: () => void; onProfile: () => void; onBack?: () => void }) {
+export function Results({ engine, report: base, since, diff, setDiff, orig, setOrig, onReset, onProfile, onBack, onAddCover, onRerun }: { onRerun?: (patch: any) => void; engine: Engine; report: Report; since: number | null; diff?: DiffState; setDiff: (d: DiffState) => void; orig?: OrigState; setOrig: (o: OrigState) => void; onAddCover?: (f: File) => void; onReset: () => void; onProfile: () => void; onBack?: () => void }) {
   const report = base;
   const rkey = docKey(base.file.name, base.profile.piece);
   const detected = detectApp(base.file.creator ?? "", base.file.producer ?? "");
@@ -126,6 +126,16 @@ export function Results({ engine, report: base, since, diff, setDiff, orig, setO
           <div className="vhead"><SevIcon sev={applied.verdict} size={26} /><h1>{VERDICT[applied.verdict].t}</h1></div>
           <p>{VERDICT[applied.verdict].s}{report.profile.printerName ? ` Revisado con los valores de ${report.profile.printerName}.` : ""} <button className="scopeinline" onClick={() => setScope(true)}>Revisión automática, no una certificación</button></p>
           <ScopeDialog open={scope} onClose={() => setScope(false)} />
+          {report.suggest && onRerun && (
+            <div className="suggest" role="status">
+              <b>¿Elegiste bien el perfil?</b>
+              <p>Lo revisé como {report.profile.inks === "1" ? "interior a una tinta" : report.profile.inks === "2" ? "interior a dos tintas" : "libro a cuatro colores"} y con las normas de {COUNTRY_NAME[report.profile.country] ?? report.profile.country}, pero {report.suggest.reasons.join(" y ")}. Varios hallazgos pueden venir de ahí.</p>
+              <button className="btn primary" onClick={() => onRerun({ ...(report.suggest!.inks ? { inks: report.suggest!.inks } : {}), ...(report.suggest!.country ? { country: report.suggest!.country } : {}) })}>
+                Volver a revisar {[report.suggest.inks ? "a cuatro colores" : "", report.suggest.country ? `con las normas de ${COUNTRY_NAME[report.suggest.country] ?? report.suggest.country}` : ""].filter(Boolean).join(" y ")}
+              </button>
+              <span>Si además es un libro escolar, ilustrado o de arte, cambiá el tipo de libro y el papel en el perfil.</span>
+            </div>
+          )}
           {todo.length > 0 && (
             <div className="todo">
               <b>{applied.counts.error ? "Para mandarlo a imprenta" : "Antes de mandarlo, revisá"}</b>

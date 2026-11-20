@@ -138,4 +138,5 @@ export function spotKey(name: string) {
     .replace(/\s+(C|CV|CVC|CVU|CP|U|UP|M|EC|PC|TCX|TPX)$/, "").trim();
 }
 
-export const TECHNICAL = /(troquel|die ?cut|die ?line|dieline|stanz|cut ?contour|cutcontour|contorno de corte|barniz|varnish|uv ?spot|spot ?uv|lack|relieve|emboss|deboss|foil|stamping|estampad|hot ?foil|stamp|blanco|white|wei(ss|ß)|braille|plegado|perfor|fold|hendido|crease)/i;
+// Palabras completas: «lack» (barniz en alemán) no tiene que coincidir con «Black», ni «white» con «Whitepaper».
+export const TECHNICAL = /(troquel|die ?cut|die ?line|dieline|stanz|cut ?contour|cutcontour|contorno de corte|barniz|varnish|uv ?spot|spot ?uv|\black\b|relieve|emboss|deboss|\bfoil\b|stamping|estampad|hot ?foil|\bstamp\b|\bblanco\b|\bwhite\b|\bwei(ss|ß)\b|braille|plegado|perfor|\bfold\b|hendido|crease)/i;
