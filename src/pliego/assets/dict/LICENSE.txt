@@ -1,0 +1,22 @@
+Diccionarios ortográficos libres usados por Pliego (paquetes dictionary-* de wooorm/dictionaries, basados en LibreOffice/Hunspell).
+Se distribuyen como datos independientes, cada uno con su propia licencia:
+
+- dictionary-es: (GPL-3.0 OR LGPL-3.0 OR MPL-1.1)
+- dictionary-es-ar: (GPL-3.0 OR LGPL-3.0 OR MPL-1.1)
+- dictionary-es-mx: (GPL-3.0 OR LGPL-3.0 OR MPL-1.1)
+- dictionary-es-co: (GPL-3.0 OR LGPL-3.0 OR MPL-1.1)
+- dictionary-es-cl: (GPL-3.0 OR LGPL-3.0 OR MPL-1.1)
+- dictionary-es-uy: (GPL-3.0 OR LGPL-3.0 OR MPL-1.1)
+- dictionary-es-pe: (GPL-3.0 OR LGPL-3.0 OR MPL-1.1)
+- dictionary-es-ve: (GPL-3.0 OR LGPL-3.0 OR MPL-1.1)
+- dictionary-ca: (GPL-2.0 OR LGPL-2.1)
+- dictionary-ca-valencia: (GPL-2.0 OR LGPL-2.1)
+- dictionary-gl: GPL-3.0
+- dictionary-eu: GPL-2.0
+- dictionary-pt: (LGPL-3.0 OR MPL-2.0)
+- dictionary-pt-pt: (GPL-2.0 OR LGPL-2.1 OR MPL-1.1)
+- dictionary-en: (MIT AND BSD)
+- dictionary-en-gb: (MIT AND BSD)
+- dictionary-fr: MPL-2.0
+- dictionary-it: GPL-3.0
+- dictionary-de: (GPL-2.0 OR GPL-3.0)

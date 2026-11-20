@@ -1,0 +1,53 @@
+// La acción concreta que resuelve cada hallazgo, en una línea: es lo que se lee en los 30 segundos.
+import type { Finding } from "../engine/analyze";
+
+const pg = (f: Finding) => { const p = f.pages.map(x => x + 1); return !p.length ? "" : p.length === 1 ? ` (pág. ${p[0]})` : p.length <= 4 ? ` (págs. ${p.join(", ")})` : ` (${p.length} páginas)`; };
+const n = (f: Finding) => Math.max(f.items?.length ?? 0, f.marks.length, 1);
+
+const A: Record<string, (f: Finding) => string> = {
+  encrypted: () => "Exportá el PDF sin contraseña ni restricciones",
+  pdfx: () => "Exportá el PDF con el ajuste PDF/X que pide la imprenta",
+  pdfxFail: () => "Volvé a exportar el PDF/X: no cumple todas sus reglas",
+  outputIntent: () => "Declará el perfil de color de la imprenta al exportar",
+  fonts: f => `Incrustá las fuentes que faltan${pg(f)}`,
+  bleed: () => "Agregá el sangrado que pide la imprenta",
+  edge: f => `Llevá hasta el sangrado los fondos e imágenes que tocan el corte${pg(f)}`,
+  trimbox: () => "Exportá con las cajas de corte (el ajuste PDF/X las incluye)",
+  safety: f => `Alejá del corte los textos que están muy cerca${pg(f)}`,
+  gutter: f => `Alejá del lomo los textos que se van a perder${pg(f)}`,
+  tac: f => `Bajá la tinta total en las zonas marcadas${pg(f)}`,
+  monoColor: f => `Pasá a negro o gris lo que está en color${pg(f)}`,
+  imgRgb: f => `Convertí a CMYK las imágenes en RGB${pg(f)}`,
+  rgbObjects: f => `Convertí a CMYK los objetos en RGB${pg(f)}`,
+  spot: f => `Convertí a cuatricromía las tintas planas que no van${pg(f)}`,
+  registration: f => `Quitá el color de registro de los objetos${pg(f)}`,
+  whiteOverprint: f => `Quitá la sobreimpresión a los objetos blancos${pg(f)}`,
+  imgPpi: f => `Reemplazá las imágenes de baja resolución${pg(f)}`,
+  richBlackText: f => `Pasá el texto chico a negro 100 %${pg(f)}`,
+  blackKnockout: f => `Hacé que el texto negro sobreimprima${pg(f)}`,
+  hairline: f => `Engrosá los filetes demasiado finos${pg(f)}`,
+  coverSize: () => "Ajustá el tamaño de la cubierta a las medidas calculadas",
+  spine: () => "Ajustá el lomo de la cubierta",
+  coverMatch: () => "Hacé coincidir interior y cubierta (ISBN, título, alto)",
+  barcode: () => "Corregí el código de barras de la contratapa",
+  isbn: () => "Corregí el ISBN: el dígito de control no es válido",
+  chapterOdd: f => `Hacé que los capítulos empiecen en página impar${pg(f)}`,
+  runningHead: f => `Corregí las cabeceras que nombran otro capítulo${pg(f)}`,
+  toc: () => "Actualizá el índice con las páginas reales",
+  signature: () => "Ajustá la extensión para cerrar el pliego",
+  corrMissing: f => `Aplicá ${n(f) === 1 ? "la corrección pendiente" : `las ${n(f)} correcciones pendientes`} de la prueba anterior`,
+  corrDifferent: f => `Revisá ${n(f) === 1 ? "la corrección que quedó" : `las ${n(f)} correcciones que quedaron`} distinta${n(f) === 1 ? "" : "s"} a lo pedido`,
+  origMissing: () => "Recuperá el texto del original que falta en el libro",
+  origNotes: () => "Agregá las notas del original que no están",
+  origChanged: () => "Revisá los cambios respecto del original aprobado",
+  placeholder: f => `Quitá las marcas de trabajo que quedaron en el texto${pg(f)}`,
+  crossRef: f => `Corregí las referencias a páginas que no existen${pg(f)}`,
+  orphan: f => `Resolvé las líneas huérfanas${pg(f)}`,
+  widow: f => `Resolvé las líneas viudas${pg(f)}`,
+  pageTurnHyphen: f => `Evitá la palabra cortada al pasar de página${pg(f)}`,
+  repeatedWord: f => `Quitá la palabra repetida${pg(f)}`,
+  noteSeq: () => "Revisá la numeración de las notas",
+  noteCallout: () => "Hacé coincidir notas y llamadas",
+  minPages: () => "El libro no llega a la extensión mínima de la imprenta",
+};
+export function actionFor(f: Finding): string { return (A[f.check] ?? (() => f.title))(f); }

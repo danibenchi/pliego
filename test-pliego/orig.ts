@@ -1,0 +1,10 @@
+import fs from "fs";
+import { analyze, compareOriginalWith } from "../src/pliego/engine/analyze";
+const fb = new Uint8Array(fs.readFileSync("src/pliego/assets/FOGRA39L_coated.bin"));
+const prof: any = { systemId: "offset-obra", contentId: "narrativa", piece: "interior", colorMode: "mono", country: "es", spell: false };
+analyze(new Uint8Array(fs.readFileSync(process.argv[2] ?? "corpus/libro-v1.pdf")), "v1", prof, () => {}, { icc: null, iccName: null, fallback: fb });
+const t = Date.now();
+const r = compareOriginalWith(new Uint8Array(fs.readFileSync("corpus/libro-original.docx")), "libro-original.docx");
+const { findings, ...sum } = r;
+console.log("ms", Date.now() - t, sum);
+for (const f of findings.slice(0, 30)) console.log(f.check, f.sev, f.item);

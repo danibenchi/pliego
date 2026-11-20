@@ -1,0 +1,11 @@
+import fs from "fs";
+import { analyze, compareWith } from "../src/pliego/engine/analyze";
+import { describe } from "../src/pliego/engine/corrections";
+const fb = new Uint8Array(fs.readFileSync("src/pliego/assets/FOGRA39L_coated.bin"));
+const prof: any = { systemId: "offset-obra", contentId: "narrativa", piece: "interior", colorMode: "mono", country: "es", spell: false };
+analyze(new Uint8Array(fs.readFileSync(process.argv[2] ?? "corpus/libro-v3-corregido.pdf")), "v3", prof, () => {}, { icc: null, iccName: null, fallback: fb });
+const t = Date.now();
+const cmp = compareWith(new Uint8Array(fs.readFileSync("corpus/libro-v1-marcado.pdf")));
+console.log("ms", Date.now() - t, "annots", cmp.annots, "edits", cmp.edits);
+for (const c of cmp.corrections) console.log(c.status.padEnd(9), c.kind.padEnd(7), describe(c), "| got:", c.got);
+console.log(cmp.findings.filter(f => f.check !== "diffText").map(f => f.check + " " + (f.item ?? f.label)));

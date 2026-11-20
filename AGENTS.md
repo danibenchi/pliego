@@ -28,3 +28,17 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Pliego (reglas del proyecto)
+
+- La herramienta vive en `src/pliego/` y tiene su propio diseño en `src/pliego/pliego.css`. No la
+  reescribas con Tailwind, shadcn ni componentes de `src/components/ui`: el diseño es intencional.
+- El análisis corre entero en el navegador (MuPDF en WebAssembly dentro de un Web Worker). No muevas
+  ningún análisis al servidor ni subas archivos: la promesa a los usuarios es que su PDF no sale del equipo.
+- `src/routes/index.tsx` carga Pliego solo en el cliente (`ssr: false` e import dinámico). No lo importes
+  de forma estática ni en otra ruta que se renderice en el servidor.
+- `src/pliego/` tiene su propio `tsconfig.json` (no estricto) y está excluido del de la raíz y de ESLint.
+  No hace falta «arreglar» sus tipos para el modo estricto.
+- Los archivos de `src/pliego/assets/dict/`, `fonts.ts` y `fogra39.ts` son generados por
+  `scripts/generate-assets.mjs`: no los edites a mano.
+- Licencia AGPL-3.0-or-later: cualquier cambio mantiene esa licencia y los avisos de `THIRD_PARTY_NOTICES.md`.

@@ -8,11 +8,33 @@
 // hosting already compresses at the edge.
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import type { Plugin } from "vite";
+
+// Pliego: hunspell-asm importa nanoid y su runtime de Emscripten como espacio de nombres y después
+// los llama como funciones; en ESM eso falla, así que se reescriben como import por defecto.
+const fixNanoid: Plugin = {
+  name: "pliego-fix-hunspell-nanoid",
+  enforce: "pre",
+  transform(code, id) {
+    if (!/hunspell-asm|emscripten-wasm-loader/.test(id)) return null;
+    let out = code;
+    out = out.replace("import * as nanoid from 'nanoid'", "import nanoid from 'nanoid'");
+    out = out.replace("import * as runtime from './lib/node/hunspell'", "import runtime from './lib/browser/hunspell'");
+    return out === code ? null : out;
+  },
+};
 
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },
+  },
+  vite: {
+    plugins: [fixNanoid],
+    // el motor de Pliego (MuPDF, Hunspell) corre en un Web Worker con módulos ES
+    worker: { format: "es", plugins: () => [fixNanoid] },
+    optimizeDeps: { exclude: ["mupdf"] },
+    build: { assetsInlineLimit: 0, chunkSizeWarningLimit: 4000 },
   },
 });

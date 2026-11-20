@@ -1,23 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState, type ComponentType } from "react";
 
-// The home route ships no og:image, so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
+// Pliego corre entero en el navegador: la ruta no se renderiza en el servidor y el código de
+// la herramienta (src/pliego) se carga recién en el cliente.
 export const Route = createFileRoute("/")({
+  ssr: false,
+  head: () => ({
+    meta: [
+      { title: "Pliego · Preflight de imprenta" },
+      { name: "description", content: "Revisión previa del PDF de imprenta, en tu navegador. Academia Proyecto451." },
+      { name: "robots", content: "noindex, nofollow" },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
-  return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
-  );
+  const [App, setApp] = useState<ComponentType | null>(null);
+  useEffect(() => {
+    if (import.meta.env.SSR) return;
+    import("../pliego/mount").then(m => setApp(() => m.default));
+  }, []);
+  return App ? <App /> : <div style={{ minHeight: "100vh", background: "#eceae4" }} />;
 }
