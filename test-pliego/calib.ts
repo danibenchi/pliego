@@ -1,0 +1,10 @@
+import fs from "fs"; import { analyze } from "../src/pliego/engine/analyze";
+const fb = new Uint8Array(fs.readFileSync("src/pliego/assets/FOGRA39L_coated.bin"));
+const [f, mode, light] = [process.argv[2], process.argv[3] ?? "default", process.argv[4] === "light"];
+const base: any = { systemId: "offset-obra", contentId: "narrativa", piece: "interior", colorMode: "mono", country: "es", flapMm: 0, paperId: "ahuesado80", spell: false, coverType: "rustica", press: "offset", inks: "1", binding: "fresada", chaptersOdd: "auto" };
+const prof = mode === "color" ? { ...base, inks: "4", colorMode: "cmyk", systemId: "offset-estucado", paperId: "estucado115", contentId: "escolar", country: "ar" } : base;
+const t = Date.now();
+const r = analyze(new Uint8Array(fs.readFileSync(f)), "libro", prof, () => {}, { icc: null, iccName: null, fallback: fb, light } as any);
+console.log(r.file.pages, "págs", Date.now() - t, "ms", r.verdict, JSON.stringify(r.counts));
+fs.writeFileSync(`/home/claude/calib/report-${mode}.json`, JSON.stringify(r, (k, v) => k === "texts" ? undefined : v));
+for (const x of r.findings) console.log(`[${x.sev}] ${x.check} · ${x.title}: ${x.detail.slice(0, 160).replace(/\n/g, " | ")} (${x.pages.length} págs, ${x.marks.length} marcas)`);
