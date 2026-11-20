@@ -10,7 +10,7 @@ import { FeedbackHost, openFeedback } from "./Feedback";
 import { VERSION } from "../version";
 import type { Inspect } from "../engine/analyze";
 import { Results, DiffState, OrigState } from "./Results";
-import { Gate, Logo, useAccess, Privacy, SevIcon } from "./bits";
+import { Gate, Logo, useAccess, Privacy, SevIcon, Brand451 } from "./bits";
 import { sha256, applyReview, loadReview, docKey } from "./review";
 import { exportPdf } from "./exportPdf";
 import { sendStat, reviewStat, action } from "./stats";
@@ -248,7 +248,7 @@ export function App() {
             <span>{report.file.formatMm}</span><span>{report.file.pages} pág.</span>
           </div>
         )}
-        <span className="by"><button className="fblink" onClick={() => openFeedback()}>¿Algo está mal? Contanos</button><a className="doclink" href="#documentacion">Documentación · v{VERSION}</a><span>Academia Proyecto451</span></span>
+        <span className="by"><button className="fblink" onClick={() => openFeedback()}>¿Algo está mal? Contanos</button><a className="doclink" href="#documentacion">Documentación · v{VERSION}</a><Brand451 height={20} /></span>
       </header>
 
       {view === "setup" && <Setup profile={profile} setProfile={setProfile} onFiles={onFiles} coverNeed={coverNeed}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Sev } from "../engine/profiles";
 import { STATS_URL, statsEnabled, setStatsEnabled, statsConfigured, onStats, sentStats, NEVER_SENT } from "./stats";
+import p451 from "../assets/proyecto451.png";
 
 // Hash SHA-256 del código de acceso de los miembros (cambialo cada trimestre).
 const ACCESS_HASH = "9b62552619d41f3122e245e796580918725ef87acaa7a81f6a3dd9aac0a5caf2";
@@ -37,8 +38,18 @@ export function Gate({ onCode }: { onCode: (c: string) => Promise<boolean> }) {
         <input id="code" autoFocus autoComplete="off" spellCheck={false} value={code} onChange={e => { setCode(e.target.value); setBad(false); }} placeholder="Lo encontrás en la comunidad" aria-invalid={bad} />
         {bad && <p className="err" role="alert">Ese código no es válido. Revisá el último publicado en la comunidad.</p>}
         <button className="btn primary wide" type="submit" disabled={!code.trim()}>Entrar</button>
+        <p className="gatefrom">Una herramienta de la Academia <Brand451 height={20} /></p>
       </form>
     </main>
+  );
+}
+
+/** Logo de Proyecto451, con enlace a la Academia. */
+export function Brand451({ height = 16, className = "" }: { height?: number; className?: string }) {
+  return (
+    <a className={"brand451 " + className} href="https://academia.proyecto451.com" target="_blank" rel="noopener" title="Academia Proyecto451">
+      <img src={p451} alt="Proyecto451" height={height} style={{ height, width: "auto" }} />
+    </a>
   );
 }
 

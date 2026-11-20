@@ -2,6 +2,7 @@ import { VERSION } from "../version";
 // Informe en PDF, generado en el navegador con pdf-lib (MIT) y Geist (OFL). No sale nada del equipo.
 import { PDFDocument, PDFFont, PDFPage, rgb, RGB } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
+import p451url from "../assets/proyecto451.png";
 import type { Report, Finding } from "../engine/analyze";
 import { resolve, Sev } from "../engine/profiles";
 import { GROUPS } from "../engine/copy";
@@ -114,7 +115,9 @@ function cover(w: Writer, title: string, sub: string) {
   w.page.drawText("Preflight de imprenta · Academia Proyecto451", { x: M + 34, y: A4[1] - M - 21, size: 8, font: w.f.r, color: C.muted });
   const date = new Date().toLocaleString("es", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
   const dw = w.f.r.widthOfTextAtSize(date, 8.5);
-  w.page.drawText(date, { x: M + W - dw, y: A4[1] - M - 14, size: 8.5, font: w.f.r, color: C.muted });
+  const lg = (w as any).p451;
+  if (lg) { const lh = 13, lw = lh * lg.width / lg.height; w.page.drawImage(lg, { x: M + W - lw, y: A4[1] - M - 13, width: lw, height: lh }); }
+  w.page.drawText(date, { x: M + W - dw, y: A4[1] - M - (lg ? 26 : 14), size: 8.5, font: w.f.r, color: C.muted });
   // tira CMYK
   ["#00a3e0", "#e5007d", "#ffd400", "#141618"].forEach((c, i) => w.page.drawRectangle({ x: M + i * 14, y: A4[1] - M - 44, width: 12, height: 5, color: hex(c) }));
   w.y = M + 62;
@@ -299,6 +302,7 @@ export async function buildReportPdf(inputs: PdfInput[], batch?: BatchRow[]): Pr
   const title = batch ? `Lote de ${batch.length} archivos` : inputs[0].report.file.name;
   doc.setTitle(`Informe de preflight · ${title}`); doc.setAuthor("Pliego · Academia Proyecto451"); doc.setCreator("Pliego"); doc.setProducer("Pliego (pdf-lib)");
   const w = new Writer(doc, f, title);
+  try { (w as any).p451 = await doc.embedPng(await (await fetch(p451url)).arrayBuffer()); } catch { /* sin logo */ }
   if (batch) {
     cover(w, `Revisión de ${batch.length} archivos`, "Resumen del lote y hallazgos de cada archivo.");
     w.h2("Resumen");

@@ -600,3 +600,9 @@ details.more > summary::-webkit-details-marker { display: none }
 .fbattach { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--muted) }
 .fbattach input { flex: none; margin-top: 3px }
 .feedback .err { margin: 0 }
+
+/* logo de Proyecto451 */
+.brand451 { display: inline-flex; align-items: center; line-height: 0; opacity: .92; transition: opacity .15s }
+.brand451:hover { opacity: 1 }
+.brand451 img { display: block }
+.gatefrom { margin: 18px 0 0; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 12.5px; color: var(--muted) }
