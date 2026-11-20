@@ -60,7 +60,7 @@ export function Docs({ onBack }: { onBack: () => void }) {
   return (
     <div className="docs">
       <header className="dtop">
-        <a className="brand" href="#" onClick={e => { e.preventDefault(); onBack(); }}><Logo /><span><b>Pliego</b><em>Documentación</em></span></a>
+        <a className="brand" href="#" onClick={e => { e.preventDefault(); onBack(); }}><Logo /><span><b>Pliego <i className="beta">beta</i></b><em>Documentación</em></span></a>
         <div className="dact"><button className="btn" onClick={() => { openAll(); setTimeout(() => window.print(), 50); }}>Imprimir o guardar en PDF</button><button className="btn primary" onClick={onBack}>Volver a Pliego</button></div>
       </header>
       <main className="dmain">
@@ -149,6 +149,7 @@ export function Docs({ onBack }: { onBack: () => void }) {
           <p>El análisis corre entero en el navegador, con el motor MuPDF compilado a WebAssembly. Los PDF y los Word no se suben a ningún servidor: se puede cortar internet después de abrir Pliego y sigue funcionando. Abajo de cada revisión, un contador muestra cuántas solicitudes de red hizo la página desde que se abrió el archivo.</p>
           <p>Lo único que puede salir son estadísticas anónimas de uso (qué controles fallan, franjas de páginas y de peso, tipo de impresión), que se pueden ver tal cual y apagar desde «Estadísticas anónimas de uso». Nunca se envía:</p>
           <ul className="dlist">{NEVER_SENT.map(t => <li key={t}>{t}</li>)}</ul>
+          <p>Durante la beta, «¿Algo está mal? Contanos» permite enviar un comentario: se guarda lo que escribís, el correo si lo dejás y, si lo aceptás, el mismo resumen anónimo de la revisión. Los datos se guardan en la base del proyecto, que solo acepta envíos: nadie puede leerlos desde la página.</p>
         </Section>
 
         <Section id="versiones" title="Historial de versiones">

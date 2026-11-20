@@ -15,6 +15,7 @@ import { applyReview, docKey, loadReview, saveReview, setMark, RevMark, REV_LABE
 import { makeThumbs, exportPdf, reportName } from "./exportPdf";
 import { actionFor } from "./actions";
 import { TacDetail } from "./TacDetail";
+import { openFeedback } from "./Feedback";
 
 const VERDICT: Record<Sev, { t: string; s: string }> = {
   error: { t: "No está listo para imprenta", s: "Hay problemas que la imprenta va a rechazar o que se van a ver en el papel." },
@@ -329,7 +330,7 @@ function FindingCard({ f, open, onClick, goto, onMark, appFix, appName, extra }:
           {extra}
           <h4>Qué pasa en imprenta</h4><p>{f.impact}</p>
           {appFix ? <><h4>Cómo se arregla en {appName}</h4><p>{appFix}</p><h4>En general</h4><p className="muted">{f.fix}</p></> : <><h4>Cómo se arregla</h4><p>{f.fix}</p></>}
-          {onMark && <div className="markbar"><span>¿Ya lo viste?</span><button onClick={() => onMark("ok")}>Revisado, está bien así</button><button onClick={() => onMark("fa")}>Falsa alarma</button></div>}
+          {onMark && <div className="markbar"><span>¿Ya lo viste?</span><button onClick={() => onMark("ok")}>Revisado, está bien así</button><button onClick={() => onMark("fa")}>Falsa alarma</button><button className="fbinline" onClick={() => openFeedback({ checkId: f.check, kind: "falsa_alarma" })}>Avisarnos para corregirlo</button></div>}
         </div>
       )}
     </article>

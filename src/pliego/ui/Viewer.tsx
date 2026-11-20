@@ -346,7 +346,7 @@ function Thumb({ engine, p, active, onClick, root, docKey }: { engine: Engine; p
       const scale = (h * 2) / (p.bounds[3] - p.bounds[1]);
       engine.render(p.index, scale, false, 1, false, docKey).then(out => {
         el.width = out.w; el.height = out.h;
-        el.getContext("2d")!.putImageData(new ImageData(out.rgba, out.w, out.h), 0, 0);
+        el.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(out.rgba), out.w, out.h), 0, 0);
         el.classList.add("in");
       }).catch(() => { done.current = false; });
     }, { root: root.current, rootMargin: "300px" });

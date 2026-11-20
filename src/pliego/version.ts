@@ -19,6 +19,7 @@ export const CHANGELOG: Release[] = [
       "Archivos pesados de hasta 500 MB, con modo liviano y medición de la tinta en detalle a pedido.",
       "Informe en PDF con huella del archivo, pasos según el programa de maquetación y alcance de la revisión.",
       "Calibrada con un libro escolar real de 256 páginas a cuatro colores: menos falsas alarmas en registro, notas, palabras repetidas y signos de apertura.",
+      "Beta: comentarios desde la herramienta («¿Algo está mal? Contanos») y estadísticas anónimas de uso, que se pueden ver y apagar.",
     ],
   },
 ];

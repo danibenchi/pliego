@@ -5,6 +5,7 @@ import type { Report, Finding, TacPage } from "../engine/analyze";
 import { resolve, Sev } from "../engine/profiles";
 import { COPY } from "../engine/copy";
 import type { Engine } from "./client";
+import { action } from "./stats";
 
 const fmt = (v: number) => (Math.round(v * 10) / 10).toLocaleString("es", { maximumFractionDigits: 1 });
 const pageList = (ps: number[]) => {
@@ -57,7 +58,7 @@ export function TacDetail({ engine, report, onPatch }: { engine: Engine; report:
   const secs = Math.max(2, Math.round(sel.length * 0.3));
   const go = async () => {
     if (!sel.length) return;
-    setState({ busy: true, done: 0, total: sel.length });
+    setState({ busy: true, done: 0, total: sel.length }); action("tac_detail");
     try {
       if (!(await engine.has(report.key))) { setState({ msg: "El PDF ya no está abierto en memoria (se revisaron otros archivos después). Volvé a revisarlo y medí la tinta enseguida." }); return; }
       const res = await engine.tac(report.key, sel, system.tac, report.pages.filter(p => p.rgb).map(p => p.index), p => setState({ busy: true, done: p.page ?? 0, total: p.pages ?? sel.length }));

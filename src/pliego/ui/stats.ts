@@ -9,21 +9,31 @@
 import type { Report } from "../engine/analyze";
 import { detectApp } from "../engine/fixes";
 
-export const STATS_URL: string = (import.meta as any).env?.VITE_PLIEGO_STATS_URL ?? "";
+// Base de datos del proyecto (Lovable Cloud). La clave publicable es pública por diseño: las tablas
+// solo aceptan inserciones y nadie puede leerlas desde la página (ver docs/estadisticas).
+const ENV = (import.meta as any).env ?? {};
+const DB_URL: string = ENV.VITE_SUPABASE_URL ?? "";
+const DB_KEY: string = ENV.VITE_SUPABASE_PUBLISHABLE_KEY ?? "";
+export const STATS_URL: string = ENV.VITE_PLIEGO_STATS_URL ?? (DB_URL && DB_KEY ? `${DB_URL}/rest/v1/pliego_stats` : "");
+const FEEDBACK_URL: string = DB_URL && DB_KEY ? `${DB_URL}/rest/v1/pliego_feedback` : "";
+const post = (url: string, body: unknown) => fetch(url, {
+  method: "POST", body: JSON.stringify(body), credentials: "omit", keepalive: true, mode: "cors", referrerPolicy: "no-referrer",
+  headers: { "Content-Type": "application/json", apikey: DB_KEY, Prefer: "return=minimal" },
+});
 const KEY = "pliego-estadisticas";
 import { VERSION } from "../version";
 
 export interface ReviewStat {
   kind: "review"; v: string;
   piece: "interior" | "cubierta";
-  press: string; inks: string; paper: "estucado" | "sin estucar" | "otro"; binding: string; country: string;
+  press: string; inks: string; paper: "estucado" | "sin estucar" | "otro"; binding: string; country: string; content: string;
   pages: string; size: string; secs: string;
   verdict: string; errors: number; warns: number; infos: number;
   /** controles que fallaron, solo el nombre interno y la gravedad (p. ej. "tac:warn") */
   checks: string[];
-  app: string; langs: string[]; light: boolean; batch: boolean; printerSaved: boolean;
+  app: string; langs: string[]; light: boolean; batch: boolean; printer_saved: boolean;
 }
-export interface ActionStat { kind: "action"; v: string; action: "compare" | "original" | "report_pdf" | "batch" | "cover_added" }
+export interface ActionStat { kind: "action"; v: string; action: "compare" | "original" | "report_pdf" | "batch" | "cover_added" | "tac_detail" | "precheck_fixed" | "precheck_ignored" }
 export type Stat = ReviewStat | ActionStat;
 
 const band = (n: number, cuts: number[], unit = "") => {
@@ -48,7 +58,7 @@ export function reviewStat(r: Report, opts: { batch: boolean }): ReviewStat {
   return {
     kind: "review", v: VERSION,
     piece: p.piece === "cubierta" ? "cubierta" : "interior",
-    press: p.press ?? "offset", inks: p.inks ?? "", paper, binding: p.binding ?? "", country: p.country ?? "",
+    press: p.press ?? "offset", inks: p.inks ?? "", paper, binding: p.binding ?? "", country: p.country ?? "", content: p.contentId ?? "",
     pages: band(r.file.pages, [4, 48, 96, 160, 240, 320, 480, 640]),
     size: band(Math.round(r.file.size / 1e6), [5, 20, 50, 100, 200, 500], " MB"),
     secs: band(Math.round(r.ms / 1000), [5, 15, 30, 60, 120, 300], " s"),
@@ -56,7 +66,7 @@ export function reviewStat(r: Report, opts: { batch: boolean }): ReviewStat {
     checks: [...new Set(r.findings.filter(f => f.sev !== "ok").map(f => `${f.check}:${f.sev}`))].sort(),
     app: detectApp(r.file.creator, r.file.producer) ?? "otro",
     langs: r.book?.spelling?.langs ?? [],
-    light: r.findings.some(f => f.check === "lightMode"), batch: opts.batch, printerSaved: !!p.printerId,
+    light: r.findings.some(f => f.check === "lightMode"), batch: opts.batch, printer_saved: !!p.printerId,
   };
 }
 
@@ -67,9 +77,8 @@ export function sendStat(stat: Stat) {
   sent.unshift(entry); if (sent.length > 20) sent.pop();
   notify();
   if (!STATS_URL) return;
-  // text/plain evita la consulta previa del navegador; sin credenciales ni cookies
-  fetch(STATS_URL, { method: "POST", body: JSON.stringify(stat), headers: { "Content-Type": "text/plain" }, credentials: "omit", keepalive: true, mode: "cors", referrerPolicy: "no-referrer" })
-    .then(r => { entry.delivered = r.ok; notify(); }).catch(() => { /* sin conexión: no se reintenta */ });
+  // sin credenciales ni cookies; si no hay conexión, no se reintenta
+  post(STATS_URL, stat).then(r => { entry.delivered = r.ok; notify(); }).catch(() => { /* */ });
 }
 
 export const action = (a: ActionStat["action"]) => sendStat({ kind: "action", v: VERSION, action: a });
@@ -82,3 +91,13 @@ export const NEVER_SENT = [
   "Los valores ni el nombre de tu imprenta",
   "Cookies o datos que permitan unir dos revisiones entre sí",
 ];
+
+// ---- comentarios de la beta ----
+// Los escribe la persona y los envía ella: el texto, un correo si quiere respuesta y, si lo acepta,
+// el mismo resumen anónimo de la revisión que va en las estadísticas.
+export type FeedbackKind = "falsa_alarma" | "no_detecto" | "error" | "idea" | "otro";
+export const feedbackConfigured = () => !!FEEDBACK_URL;
+export async function sendFeedback(f: { kind: FeedbackKind; message: string; contact?: string; check_id?: string; context?: unknown }): Promise<boolean> {
+  if (!FEEDBACK_URL) return false;
+  try { const r = await post(FEEDBACK_URL, { v: VERSION, ...f }); return r.ok; } catch { return false; }
+}

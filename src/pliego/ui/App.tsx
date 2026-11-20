@@ -6,6 +6,7 @@ import { Engine, isOom } from "./client";
 import { Setup, CoverNeed } from "./Setup";
 import { compareProfile, PrecheckDialog, PreItem } from "./Precheck";
 import { Docs } from "./Docs";
+import { FeedbackHost, openFeedback } from "./Feedback";
 import { VERSION } from "../version";
 import type { Inspect } from "../engine/analyze";
 import { Results, DiffState, OrigState } from "./Results";
@@ -160,6 +161,7 @@ export function App() {
     } else if (looks[0].cover) { plan = { cubierta: pdfs[0] }; needCover = true; }
     else plan = { interior: pdfs[0] };
     const go = (prof: Profile) => {
+      if (items.length) action(prof === profile ? "precheck_ignored" : "precheck_fixed");
       setPre(null);
       if (prof !== profile) setProfile(prof);
       if (needCover && !(prof.trimW && (prof.interiorPages || prof.spineMm))) {
@@ -229,7 +231,7 @@ export function App() {
     <div className="app">
       <header className="top">
         <a className="brand" href="#" onClick={e => { e.preventDefault(); if (view !== "run") { setView("setup"); } }}>
-          <Logo /><span><b>Pliego</b><em>Preflight de imprenta</em></span>
+          <Logo /><span><b>Pliego <i className="beta">beta</i></b><em>Preflight de imprenta</em></span>
         </a>
         {report && view === "results" && (
           <div className="crumbs">
@@ -246,13 +248,14 @@ export function App() {
             <span>{report.file.formatMm}</span><span>{report.file.pages} pág.</span>
           </div>
         )}
-        <span className="by"><a className="doclink" href="#documentacion">Documentación · v{VERSION}</a><span>Academia Proyecto451</span></span>
+        <span className="by"><button className="fblink" onClick={() => openFeedback()}>¿Algo está mal? Contanos</button><a className="doclink" href="#documentacion">Documentación · v{VERSION}</a><span>Academia Proyecto451</span></span>
       </header>
 
       {view === "setup" && <Setup profile={profile} setProfile={setProfile} onFiles={onFiles} coverNeed={coverNeed}
         onCoverReady={() => coverNeed && run({ cubierta: coverNeed.file })} onCoverCancel={() => setCoverNeed(null)}
         error={error || (engineState === "error" ? "El motor de análisis no pudo arrancar en este navegador. Probá con Chrome, Edge, Firefox o Safari actualizados." : "")} engineState={engineState} icc={icc} setIcc={setIcc} />}
 
+      <FeedbackHost report={view === "results" ? report : null} />
       {pre && <PrecheckDialog profile={profile} items={pre.items} onRun={pre.go} onCancel={() => { setPre(null); setProgress(null); setView("setup"); }} />}
       {view === "run" && progress && (
         <main className="running" aria-live="polite">
