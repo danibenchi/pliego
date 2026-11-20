@@ -11,7 +11,7 @@ import { detectApp } from "../engine/fixes";
 
 export const STATS_URL: string = (import.meta as any).env?.VITE_PLIEGO_STATS_URL ?? "";
 const KEY = "pliego-estadisticas";
-const VERSION = "0.9";
+import { VERSION } from "../version";
 
 export interface ReviewStat {
   kind: "review"; v: string;

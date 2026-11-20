@@ -101,7 +101,7 @@
     "vite": "8.1.5",
     "vitest": "^4.1.10"
   },
-  "version": "0.9.1",
+  "version": "1.0.0",
   "license": "AGPL-3.0-or-later",
   "author": "Daniel Benchimol (Proyecto451)"
 }

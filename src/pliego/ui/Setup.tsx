@@ -142,6 +142,7 @@ export function Setup({ profile, setProfile, onFiles, error, engineState, icc, s
         <span className={"engine " + engineState}><i />{engineState === "ready" ? "Motor de análisis listo, en tu equipo" : engineState === "error" ? "El motor no pudo arrancar" : "Cargando el motor de análisis…"}</span>
         {error && <p className="err" role="alert">{error}</p>}
         <button className="scopelink" onClick={e => { e.stopPropagation(); setScope(true); }}>Qué hace y qué no hace Pliego</button>
+        <a className="scopelink" href="#documentacion" onClick={e => e.stopPropagation()}>Documentación completa</a>
         <input ref={input} type="file" accept="application/pdf,.pdf" multiple hidden onChange={e => { take([...(e.target.files ?? [])]); e.target.value = ""; }} />
       </section>
 

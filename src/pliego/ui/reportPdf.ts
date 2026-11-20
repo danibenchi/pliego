@@ -1,3 +1,4 @@
+import { VERSION } from "../version";
 // Informe en PDF, generado en el navegador con pdf-lib (MIT) y Geist (OFL). No sale nada del equipo.
 import { PDFDocument, PDFFont, PDFPage, rgb, RGB } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
@@ -236,7 +237,7 @@ function footer(doc: PDFDocument, f: Writer["f"], left: string, hash?: string) {
   pages.forEach((p, i) => {
     const y = 26;
     p.drawLine({ start: { x: M, y: y + 12 }, end: { x: M + W, y: y + 12 }, thickness: 0.4, color: C.line });
-    const l = `Pliego · ${left}${hash ? ` · SHA-256 ${hash.slice(0, 16)}…` : ""}`;
+    const l = `Pliego ${VERSION} · ${left}${hash ? ` · SHA-256 ${hash.slice(0, 16)}…` : ""}`;
     p.drawText(clean(l).slice(0, 110), { x: M, y, size: 7, font: f.r, color: C.faint });
     const r = `${i + 1} / ${pages.length}`;
     p.drawText(r, { x: M + W - f.r.widthOfTextAtSize(r, 7), y, size: 7, font: f.r, color: C.faint });

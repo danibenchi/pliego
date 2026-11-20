@@ -547,3 +547,44 @@ details.more > summary::-webkit-details-marker { display: none }
 .precheck .check input { flex: none; width: 16px; height: 16px }
 .lightwarn { margin-top: 10px; font-size: 13px; color: var(--ink); background: #fff7e0; border: 1px solid #f0d58a; border-radius: 10px; padding: 8px 10px }
 .lightwarn button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; color: inherit }
+/* documentación */
+.top .by { display: flex; gap: 14px; align-items: center }
+.doclink { color: var(--muted); font-size: 13px; text-decoration: none; border-bottom: 1px solid var(--line2) }
+.doclink:hover { color: var(--ink); border-color: currentColor }
+.gatedocs { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 13px; color: var(--muted) }
+.docs { min-height: 100vh; background: var(--bg) }
+.dtop { position: sticky; top: 0; z-index: 5; display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--line) }
+.dtop .brand { display: flex; gap: 10px; align-items: center; color: inherit; text-decoration: none }
+.dtop .brand span { display: grid; line-height: 1.15 } .dtop .brand em { font-style: normal; font-size: 12px; color: var(--muted) }
+.dact { display: flex; gap: 8px }
+.dmain { max-width: 860px; margin: 0 auto; padding: 32px 24px 80px }
+.dhero h1 { font-size: 34px; margin: 0 0 4px } .dver { margin: 0 0 14px; font-family: var(--mono); font-size: 13px; color: var(--muted) }
+.dhero p { font-size: 16px; line-height: 1.6 }
+.dtoc { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 12px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 8px }
+.dtoc a { font-size: 13.5px; color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--line2) }
+.dsec { padding-top: 26px } .dsec h2 { font-size: 23px; margin: 0 0 12px }
+.dsec h3 { font-size: 16px; margin: 20px 0 8px } .dsec h3 span { color: var(--muted); font-weight: 400; font-size: 13px }
+.dsec p { line-height: 1.6; font-size: 15px }
+.dsteps { padding-left: 20px; display: grid; gap: 8px; line-height: 1.55 }
+.dsev { list-style: none; padding: 0; display: grid; gap: 8px } .dsev li { display: flex; gap: 8px; align-items: baseline; line-height: 1.5 }
+.dsev .dot { flex: none; transform: translateY(1px) }
+.dnote { color: var(--muted); font-size: 14px !important }
+.dsearch { width: 100%; font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); margin-bottom: 6px }
+.dintro { color: var(--muted); font-size: 14px !important; margin: -2px 0 8px }
+.dcheck { border-top: 1px solid var(--line); padding: 8px 2px } .dcheck:last-child { border-bottom: 1px solid var(--line) }
+.dcheck summary { cursor: pointer; font-weight: 500 } .dcheck p { margin: 6px 0 0 16px; font-size: 14px }
+.dtable { overflow-x: auto } .dtable table { border-collapse: collapse; width: 100%; font-size: 13.5px }
+.dtable th, .dtable td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top }
+.dtable th { font-weight: 600; font-size: 12.5px; color: var(--muted) } .dtable td:not(:first-child):not(:last-child) { white-space: nowrap; font-family: var(--mono); font-size: 12.5px }
+.dfeat { display: grid; gap: 12px; margin: 0 } .dfeat dt { font-weight: 600 } .dfeat dd { margin: 2px 0 0; color: var(--muted); line-height: 1.55 }
+.dlist { padding-left: 20px; line-height: 1.55; display: grid; gap: 4px }
+.drel h3 span { margin-left: 6px }
+@media print {
+  .dtop, .dtoc, .dsearch { display: none !important }
+  .docs { background: #fff } .dmain { padding: 0; max-width: none }
+  .dcheck { break-inside: avoid } .dcheck p { display: block }
+  details.dcheck:not([open]) > p { display: block }
+}
+.dsteps { list-style: decimal } .dlist { list-style: disc }
+.dsec { scroll-margin-top: 70px }
+.dsev li { display: block } .dsev .dot { display: inline-block; margin-right: 6px }

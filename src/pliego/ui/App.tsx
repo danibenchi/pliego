@@ -5,6 +5,8 @@ import { crossCheck } from "../engine/cross";
 import { Engine, isOom } from "./client";
 import { Setup, CoverNeed } from "./Setup";
 import { compareProfile, PrecheckDialog, PreItem } from "./Precheck";
+import { Docs } from "./Docs";
+import { VERSION } from "../version";
 import type { Inspect } from "../engine/analyze";
 import { Results, DiffState, OrigState } from "./Results";
 import { Gate, Logo, useAccess, Privacy, SevIcon } from "./bits";
@@ -68,6 +70,8 @@ export function App() {
   const [engineState, setEngineState] = useState(engine.state);
   const [forceLight, setForceLight] = useState(false);
   const [pre, setPre] = useState<{ items: PreItem[]; go: (p: Profile) => void } | null>(null);
+  const [docs, setDocs] = useState(() => typeof location !== "undefined" && location.hash.startsWith("#documentacion"));
+  useEffect(() => { const h = () => setDocs(location.hash.startsWith("#documentacion")); window.addEventListener("hashchange", h); return () => window.removeEventListener("hashchange", h); }, []);
   const [lightRun, setLightRun] = useState(false);
   useEffect(() => { engine.onState = setEngineState; setEngineState(engine.state); }, [engine]);
 
@@ -216,7 +220,9 @@ export function App() {
 
   useEffect(() => { document.title = report ? `${report.file.name} · Pliego` : "Pliego · Preflight de imprenta"; }, [report]);
 
-  if (!access.ok) return <Gate onCode={access.tryCode} />;
+  // la documentación se puede consultar sin el código de acceso (#documentacion)
+  if (docs) return <Docs onBack={() => { history.replaceState(null, "", location.pathname + location.search); setDocs(false); }} />;
+  if (!access.ok) return <><Gate onCode={access.tryCode} /><a className="gatedocs" href="#documentacion">Qué revisa Pliego · versión {VERSION}</a></>;
   const keys = (["interior", "cubierta"] as Key[]).filter(k => reports[k]);
 
   return (
@@ -240,7 +246,7 @@ export function App() {
             <span>{report.file.formatMm}</span><span>{report.file.pages} pág.</span>
           </div>
         )}
-        <span className="by">Academia Proyecto451</span>
+        <span className="by"><a className="doclink" href="#documentacion">Documentación · v{VERSION}</a><span>Academia Proyecto451</span></span>
       </header>
 
       {view === "setup" && <Setup profile={profile} setProfile={setProfile} onFiles={onFiles} coverNeed={coverNeed}
