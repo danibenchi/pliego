@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1795188431336,
+      "tag": "0000_pliego_stats_feedback",
+      "breakpoints": true
+    }
+  ]
+}

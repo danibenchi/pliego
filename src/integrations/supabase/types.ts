@@ -14,7 +14,123 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      pliego_feedback: {
+        Row: {
+          check_id: string | null
+          contact: string | null
+          context: Json | null
+          created_at: string
+          id: number
+          kind: string
+          message: string
+          v: string
+        }
+        Insert: {
+          check_id?: string | null
+          contact?: string | null
+          context?: Json | null
+          created_at?: string
+          id?: never
+          kind: string
+          message: string
+          v: string
+        }
+        Update: {
+          check_id?: string | null
+          contact?: string | null
+          context?: Json | null
+          created_at?: string
+          id?: never
+          kind?: string
+          message?: string
+          v?: string
+        }
+        Relationships: []
+      }
+      pliego_stats: {
+        Row: {
+          action: string | null
+          app: string | null
+          batch: boolean | null
+          binding: string | null
+          checks: string[]
+          content: string | null
+          country: string | null
+          day: string
+          errors: number | null
+          id: number
+          infos: number | null
+          inks: string | null
+          kind: string
+          langs: string[]
+          light: boolean | null
+          pages: string | null
+          paper: string | null
+          piece: string | null
+          press: string | null
+          printer_saved: boolean | null
+          secs: string | null
+          size: string | null
+          v: string
+          verdict: string | null
+          warns: number | null
+        }
+        Insert: {
+          action?: string | null
+          app?: string | null
+          batch?: boolean | null
+          binding?: string | null
+          checks?: string[]
+          content?: string | null
+          country?: string | null
+          day?: string
+          errors?: number | null
+          id?: never
+          infos?: number | null
+          inks?: string | null
+          kind: string
+          langs?: string[]
+          light?: boolean | null
+          pages?: string | null
+          paper?: string | null
+          piece?: string | null
+          press?: string | null
+          printer_saved?: boolean | null
+          secs?: string | null
+          size?: string | null
+          v: string
+          verdict?: string | null
+          warns?: number | null
+        }
+        Update: {
+          action?: string | null
+          app?: string | null
+          batch?: boolean | null
+          binding?: string | null
+          checks?: string[]
+          content?: string | null
+          country?: string | null
+          day?: string
+          errors?: number | null
+          id?: never
+          infos?: number | null
+          inks?: string | null
+          kind?: string
+          langs?: string[]
+          light?: boolean | null
+          pages?: string | null
+          paper?: string | null
+          piece?: string | null
+          press?: string | null
+          printer_saved?: boolean | null
+          secs?: string | null
+          size?: string | null
+          v?: string
+          verdict?: string | null
+          warns?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
