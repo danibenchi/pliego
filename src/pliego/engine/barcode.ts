@@ -91,7 +91,11 @@ export function scanBarcode(pdf: any, index: number, area: R | null, color: Colo
       if (px < 0 || py < 0 || px >= ras.w || py >= ras.h) continue;
       const o = (py * ras.w + px) * 4, g = at(x, y);
       const v = [ras.px[o] / 255, ras.px[o + 1] / 255, ras.px[o + 2] / 255, ras.px[o + 3] / 255];
-      if (g < thr - (mx - mn) * 0.25) { v.forEach((c, k) => (bars[k] += c)); nb++; } else if (g > thr + (mx - mn) * 0.25) { v.forEach((c, k) => (space[k] += c)); ns++; }
+      // con códigos chicos cada barra o espacio mide uno o dos píxeles: solo se toma el color donde el
+      // píxel y sus vecinos son del mismo tipo, para no mezclar barra con espacio
+      const lo = thr - (mx - mn) * 0.25, hi = thr + (mx - mn) * 0.25;
+      if (g < lo && at(x - 1, y) < lo && at(x + 1, y) < lo) { v.forEach((c, k) => (bars[k] += c)); nb++; }
+      else if (g > hi && at(x - 1, y) > hi && at(x + 1, y) > hi) { v.forEach((c, k) => (space[k] += c)); ns++; }
     }
   } catch { /* sin color */ }
   const addon = (res.getResultMetadata()?.get(ResultMetadataType.UPC_EAN_EXTENSION) as string | undefined) ?? null;

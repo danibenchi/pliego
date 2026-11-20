@@ -122,6 +122,9 @@ export function Docs({ onBack }: { onBack: () => void }) {
             <thead><tr><th>Papel</th><th>Tinta máx.</th><th>Espesor por hoja</th><th>Perfil de referencia</th></tr></thead>
             <tbody>{PAPERS.map(p => <tr key={p.id}><td>{p.name}</td><td>{p.tac} %</td><td>{String(p.mmPerLeaf).replace(".", ",")} mm</td><td>{p.icc}</td></tr>)}</tbody>
           </table></div>
+          <p className="dnote">La cubierta en offset se mide con 330 % (cartulina estucada), aunque el interior vaya en otro papel. La tinta se mide dentro de la caja de corte y no se mide en interiores a una tinta.</p>
+          <h3>Código de barras</h3>
+          <p>GS1 pide el EAN-13 al 80 % o más. En libros es habitual entre 70 y 80 % y se lee bien: Pliego lo informa. Por debajo de 70 % avisa y por debajo de 55 % lo marca como bloqueante. Barras en negro 100 % sobre fondo claro.</p>
           <h3>Según el tipo de libro</h3>
           <div className="dtable"><table>
             <thead><tr><th>Tipo</th><th>Zona segura</th><th>Texto al lomo</th><th>Qué se cuida</th></tr></thead>

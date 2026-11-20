@@ -160,8 +160,10 @@ export function bookChecks(pages: PageText[], o: BookOptions, add: Add): BookRes
         e.page = target;
         const found = findTitleNear(e.title, target);
         e.real = found === null ? null : found + 1 - folioOffset;
+        // un título que se repite en el índice («Registro dos» tres veces) no se puede ubicar por cercanía
+        const dup = toc.filter(o => norm(o.title) === norm(e.title)).length > 1;
         if (found === target) { e.ok = true; ok++; }
-        else if (found !== null) { bad++; const realFolio = found + 1 - folioOffset; add("toc", "error", "", (e as any)._src, null, undefined, `«${e.title.slice(0, 50)}»: el índice dice ${e.folio}, pero empieza en la ${realFolio}`); add("toc", "error", "", found, chapters.find(c => c.page === found)?.r ?? null, `El índice indica pág. ${e.folio}`); }
+        else if (found !== null && !dup) { bad++; const realFolio = found + 1 - folioOffset; add("toc", "error", "", (e as any)._src, null, undefined, `«${e.title.slice(0, 50)}»: el índice dice ${e.folio}, pero empieza en la ${realFolio}`); add("toc", "error", "", found, chapters.find(c => c.page === found)?.r ?? null, `El índice indica pág. ${e.folio}`); }
       }
       const unknown = toc.length - ok - bad;
       if (unknown > 0 && unknown >= toc.length * 0.5) add("toc", "info", "", undefined, undefined, undefined, `No encontré ${unknown} de las ${toc.length} entradas del índice como títulos en el libro (puede que en la página tengan otro texto)`);
@@ -187,11 +189,14 @@ export function bookChecks(pages: PageText[], o: BookOptions, add: Add): BookRes
     const last = ls[ls.length - 1];
     // huérfana: primera línea de un párrafo sola al pie
     const nb = body[i + 1];
-    if (nb && !chapterPages.has(i + 1) && ls.length > 1 && isStart(b, last, ls[ls.length - 2]) && !isEnd(b, last))
+    // (y el párrafo sigue en la página siguiente: su primera línea no empieza párrafo)
+    if (nb && !chapterPages.has(i + 1) && ls.length > 1 && isStart(b, last, ls[ls.length - 2]) && !isEnd(b, last) && !isStart(nb, nb.lines[0]) && last.r[0] < b.left + (b.right - b.left) * 0.3)
       add("orphan", "warn", "", i, last.r, "Línea huérfana", `Pág. ${i + 1}: «${snip(last.text)}»`);
     // viuda: última línea de un párrafo sola arriba
     const first = ls[0];
-    if (i > 0 && body[i - 1] && !chapterPages.has(i) && !isStart(b, first) && isEnd(b, first) && ls.length > 1 && isStart(b, ls[1], first))
+    // (y viene de la página anterior: su última línea no cierra párrafo, y la viuda no es un título)
+    const pb = body[i - 1], plast = pb?.lines[pb.lines.length - 1];
+    if (i > 0 && pb && plast && !isEnd(pb, plast) && !chapterPages.has(i) && !isStart(b, first) && isEnd(b, first) && ls.length > 1 && isStart(b, ls[1], first) && !/^[\d\p{Lu}\s.,:-]+$/u.test(first.text))
       add("widow", "warn", "", i, first.r, "Línea viuda", `Pág. ${i + 1}: «${snip(first.text)}»`);
     // escaleras de guiones
     let run: Line[] = [];

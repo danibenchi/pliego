@@ -124,7 +124,10 @@ export function resolve(p: Profile) {
   const binding = BINDINGS.find(b => b.id === p.binding);
   const sp = p.spec ?? {};
   // offset: la tinta máxima depende del papel; la imprenta puede pedir otros valores
-  const tac = sp.tac ?? (base.id.startsWith("offset") && paper ? paper.tac : base.tac);
+  // la cubierta va en cartulina estucada aunque el interior sea en papel obra: su límite es el del
+  // estucado (ISO 12647-2, FOGRA39: 330 %), salvo que la imprenta indique otro
+  const coverTac = p.piece === "cubierta" && base.id.startsWith("offset") ? 330 : null;
+  const tac = sp.tac ?? coverTac ?? (base.id.startsWith("offset") && paper ? paper.tac : base.tac);
   const signature = sp.signature ?? (binding?.signature && base.signature > 2 ? binding.signature : base.signature);
   const system: PrintSystem = { ...base, tac, signature, bleedMm: sp.bleedMm ?? base.bleedMm, minPpi: sp.minPpi ?? base.minPpi, hardPpi: Math.min(sp.minPpi ? sp.minPpi * 0.67 : base.hardPpi, sp.minPpi ?? base.hardPpi) };
   const content: ContentType = { ...baseContent, safetyMm: sp.safetyMm ?? baseContent.safetyMm, gutterMm: sp.gutterMm ?? Math.max(baseContent.gutterMm, binding?.gutterMm ?? 0) };

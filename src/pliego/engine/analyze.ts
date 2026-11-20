@@ -141,6 +141,21 @@ function findIsbns(text: string): string[] {
 
 // Caja ajustada del texto: une las cajas de cada glifo (ascendente/descendente aproximados),
 // porque la caja de la fuente que da MuPDF suele ser mucho más grande que la letra.
+/** Cada glifo por separado, con su caja y si va girado (texto vertical, como el del lomo). */
+function glyphRects(text: any, ctm: any, out: { r: Rect; vert: boolean }[]) {
+  text.walk({
+    showGlyph(font: any, trm: any, gid: number, _u: number, wmode: number) {
+      const m = mupdf.Matrix.concat(trm, ctm);
+      let adv = 0.5; try { adv = font.advanceGlyph(gid, wmode); } catch { /* sin métrica */ }
+      let r: Rect | null = null;
+      for (const [x, y] of [[0, -0.2], [adv, -0.2], [0, 0.75], [adv, 0.75]]) {
+        const X = x * m[0] + y * m[2] + m[4], Y = x * m[1] + y * m[3] + m[5];
+        r = r ? [Math.min(r[0], X), Math.min(r[1], Y), Math.max(r[2], X), Math.max(r[3], Y)] : [X, Y, X, Y];
+      }
+      if (r && out.length < 20000) out.push({ r, vert: Math.abs(m[1]) > Math.abs(m[0]) });
+    },
+  });
+}
 function glyphBounds(text: any, ctm: any): Rect | null {
   let r: Rect | null = null;
   text.walk({
@@ -505,24 +520,31 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
     const W = ras.w, H = ras.h, px = ras.px;
     const limit = system.tac * 2.55;
     let maxT = 0, ink = 0, cC = 0, cM = 0, cY = 0, cK = 0;
-    for (let o = 0; o < px.length; o += 4) {
+    // solo lo que queda en el libro: dentro de la caja de corte. En el sangrado y fuera de él están las
+    // marcas de corte y de registro (400 %, las cuatro tintas), que no son parte del libro, y lo que se
+    // imprima en el sangrado se va con el corte.
+    const inkBox = hasTrim ? trim : bleed;
+    const [cx0, cy0, cx1, cy1] = clipPx(ras, RASTER, inkBox);
+    for (let yy0 = cy0; yy0 < cy1; yy0++) for (let x = cx0; x < cx1; x++) {
+      const o = (yy0 * W + x) * 4;
       const c = px[o], m = px[o + 1], yy = px[o + 2], k = px[o + 3], s = c + m + yy + k;
       if (s > maxT) maxT = s;
       if (s > 3) ink++;
       if (c > 12) cC++; if (m > 12) cM++; if (yy > 12) cY++; if (k > 12) cK++;
     }
-    const tot = W * H;
+    const tot = Math.max(1, (cx1 - cx0) * (cy1 - cy0));
     pi.tacMax = Math.round(maxT / 2.55);
     pi.plates = { c: cC / tot, m: cM / tot, y: cY / tot, k: cK / tot };
     pi.blank = ink === 0 && textItems.length === 0;
 
     // -- tinta total en detalle: segunda pasada a 150 ppi donde se acerca al límite --
-    if (maxT > limit * 0.9) {
+    // a una tinta no hay tinta total que medir: todo sale en una sola plancha (el color se avisa aparte)
+    if (maxT > limit * 0.9 && !mono) {
       // resolución adaptativa: 150 ppi salvo en páginas enormes; en archivos pesados se usa la primera pasada
       const area = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]);
       const FS = light ? RASTER : Math.min(FINE, Math.sqrt(FINE_MAX_PX / Math.max(1, area)));
       const fine = light ? ras : rasterCMYK(pdf, i, FS, color, pageRGB);
-      const m = measureTac(fine, FS, limit);
+      const m = measureTac(fine, FS, limit, inkBox);
       pi.tacOverMm2 = m.overMm2; pi.tacMax = m.max; pi.tacPpi = Math.round(FS * 72);
       const ob = m.rect;
       if (pi.tacOverMm2 >= 4 && ob) add("tac", pi.tacOverMm2 > 100 ? "error" : "warn", "", i, ob, `Hasta ${pi.tacMax} % de tinta en ${fmtMm(pi.tacOverMm2)} mm² (límite ${system.tac} %)`);
@@ -601,6 +623,9 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
       if (x < 0 || y < 0 || x >= W || y >= H) return -1;
       const o = (y * W + x) * 4; return px[o] + px[o + 1] + px[o + 2] + px[o + 3];
     };
+    // con texturas claras o granuladas (papel, acuarela) un solo píxel puede caer en un hueco: se mira
+    // el vecindario y varios puntos del camino hacia afuera
+    const inkNear = (X: number, Y: number) => { let m = -1; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) m = Math.max(m, inkAt(X + dx / RASTER, Y + dy / RASTER)); return m; };
     const edges: { name: string; inside: (t: number) => [number, number]; out: (t: number, d: number) => [number, number]; from: number; to: number; avail: number }[] = [
       { name: "izquierdo", inside: t => [trim[0] + 1.2, t], out: (t, d) => [trim[0] - d, t], from: trim[1], to: trim[3], avail: trim[0] - bleed[0] },
       { name: "derecho", inside: t => [trim[2] - 1.2, t], out: (t, d) => [trim[2] + d, t], from: trim[1], to: trim[3], avail: bleed[2] - trim[2] },
@@ -618,8 +643,8 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
         if (inkAt(ix, iy) <= 8) continue;
         touching++;
         const depth = Math.min(need, e.avail - 0.5);
-        const [ox, oy] = e.out(t, Math.max(0.6, depth));
-        const v = depth < 0.6 ? -1 : inkAt(ox, oy);
+        let v = -1;
+        if (depth >= 0.6) for (const f of [1, 0.85]) { const [ox, oy] = e.out(t, Math.max(0.6, depth * f)); v = Math.max(v, inkNear(ox, oy)); if (v > 8) break; }
         if (v <= 8) { missing++; if (segA < 0) segA = t; segB = t; }
       }
       if (touching > samples * 0.02 && missing > touching * 0.3) {
@@ -686,7 +711,9 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
 
   // ---------- controles de documento ----------
   if (encrypted) add("encrypted", "error", "");
-  if (!outputIntent) add("outputIntent", system.wantsOutputIntent ? "warn" : "info", ""); else passed.add("outputIntent");
+  // En la práctica las imprentas aceptan PDF sin intención de salida (los 10 libros reales de la
+  // calibración la tenían vacía y se imprimieron bien): es informativo.
+  if (!outputIntent) add("outputIntent", "info", ""); else passed.add("outputIntent");
   if (layers.length) {
     const hidden = layers.filter(l => l.hidden);
     if (hidden.length) { const f = add("hiddenLayers", "warn", ""); hidden.forEach(h => f.items!.push(h.name)); }
@@ -707,9 +734,17 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
   }
 
   const noTrim = pages.filter(p => !p.hasTrim).map(p => p.index);
-  if (noTrim.length) { const f = add("trimbox", "warn", ""); f.pages = noTrim; }
+  // páginas sin caja de corte con la misma hoja que las demás: el tamaño «distinto» es solo la caja que
+  // falta (pasa con blancas agregadas al final); se avisa como caja de corte, no como otro formato
+  const mainMedia = (() => { const m = new Map<string, number>(); pages.forEach(p => { const k = `${Math.round(p.bounds[2] - p.bounds[0])}x${Math.round(p.bounds[3] - p.bounds[1])}`; m.set(k, (m.get(k) ?? 0) + 1); }); return [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]; })();
+  const onlyBox = new Set(noTrim.length * 2 > pages.length ? [] : pages.filter(p => !p.hasTrim && `${Math.round(p.bounds[2] - p.bounds[0])}x${Math.round(p.bounds[3] - p.bounds[1])}` === mainMedia).map(p => p.index));
+  if (noTrim.length) {
+    const f = add("trimbox", "warn", ""); f.pages = noTrim;
+    const blanks = noTrim.filter(i => onlyBox.has(i) && pages[i].blank);
+    if (blanks.length) f.items!.push(`${blanks.length === noTrim.length ? "Son" : "Entre ellas hay"} ${blanks.length === 1 ? "una página en blanco" : `${blanks.length} páginas en blanco`} (${pageList(blanks)}) con la misma hoja que el resto: falta solo la caja de corte. Exportalas con las mismas marcas y sangrado, o avisale a la imprenta.`);
+  }
   const sizes = new Map<string, number[]>();
-  for (const p of pages) { const k = `${fmtMm(p.wMm)} × ${fmtMm(p.hMm)}`; sizes.set(k, [...(sizes.get(k) ?? []), p.index]); }
+  for (const p of pages) if (!onlyBox.has(p.index)) { const k = `${fmtMm(p.wMm)} × ${fmtMm(p.hMm)}`; sizes.set(k, [...(sizes.get(k) ?? []), p.index]); }
   const mainSize = [...sizes.entries()].sort((a, b) => b[1].length - a[1].length)[0];
   if (!cover && sizes.size > 1) {
     for (const [k, ps] of sizes) if (k !== mainSize[0]) { const f = add("pageSize", "error", ""); f.pages.push(...ps); f.items!.push(`${k} mm en ${pageList(ps)}`); }
@@ -724,7 +759,8 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
   if (!cover) {
     if (system.signature > 2 && nPages % system.signature !== 0) {
       const missing = system.signature - (nPages % system.signature);
-      const f = add("signature", "warn", "");
+      // las imprentas completan con blancas o arman un pliego menor: es para saberlo, no un error
+      const f = add("signature", "info", "");
       f.items!.push(`${nPages} páginas: faltan ${missing} para completar el pliego de ${system.signature} (${nPages + missing} en total)`);
       if (nPages % 8 === 0) f.items!.push(`También cierra con un medio pliego de 8 si tu imprenta lo acepta`);
     } else if (nPages % 2 !== 0) add("signature", "error", "", undefined, undefined, undefined, `${nPages} páginas: un libro siempre tiene un número par de páginas`);
@@ -772,17 +808,46 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
       } else passed.add("coverSize");
       if (Math.abs(actualSpine - expected) <= 1) passed.add("spine");
       const x0 = p0.trim[0], y0 = p0.trim[1];
-      coverGeo = { ...geo, x0, y0 };
-      const folds = geo.folds.map(v => x0 + ptOf(v)), hfolds = geo.hfolds.map(v => y0 + ptOf(v));
-      const tItems: Rect[] = [];
-      const tdev = new mupdf.Device({ fillText(text: any, ctm: any) { const g = glyphBounds(text, ctm); if (g) tItems.push(g); } });
+      // si las medidas cierran, los pliegues se ubican con el lomo del archivo (no con el calculado)
+      const sizeOk = Math.abs(p0.wMm - geo.totalW) <= 1 && Math.abs(p0.hMm - geo.totalH) <= 1;
+      const geoF = sizeOk && Math.abs(actualSpine - expected) > 0.05 ? coverGeometry({ ...params, spine: actualSpine }) : geo;
+      const tItems: Rect[] = [], glyphs: { r: Rect; vert: boolean }[] = [];
+      const tdev = new mupdf.Device({ fillText(text: any, ctm: any) { const g = glyphBounds(text, ctm); if (g) tItems.push(g); glyphRects(text, ctm, glyphs); } });
       { const p0 = pdf.loadPage(0); p0.run(tdev, mupdf.Matrix.identity); tdev.close(); free(tdev, p0); }
+      // fuera de la caja de corte (datos del archivo, marcas) no es parte de la cubierta
+      const inTrim = (r: Rect) => r[2] > p0.trim[0] && r[0] < p0.trim[2] && r[3] > p0.trim[1] && r[1] < p0.trim[3];
+      for (let k = tItems.length - 1; k >= 0; k--) if (!inTrim(tItems[k])) tItems.splice(k, 1);
+      for (let k = glyphs.length - 1; k >= 0; k--) if (!inTrim(glyphs[k].r)) glyphs.splice(k, 1);
+      // las solapas no siempre son iguales: si hay texto vertical cerca del lomo calculado, el lomo está
+      // donde está ese texto, y los pliegues se corren con él
+      let shift = 0;
+      if (type !== "tapadura" && flapMm > 0) {
+        const sp = geoF.panels.find(pn => pn.kind === "spine");
+        if (sp) {
+          const mid = x0 + ptOf((sp.x0 + sp.x1) / 2);
+          const cs = glyphs.filter(g => g.vert && Math.abs((g.r[0] + g.r[2]) / 2 - mid) < ptOf(40)).map(g => (g.r[0] + g.r[2]) / 2).sort((a, b) => a - b);
+          if (cs.length >= 4) { const c = cs[cs.length >> 1]; if (Math.abs(c - mid) > ptOf(1.5) && Math.abs(c - mid) < ptOf(flapMm - 20)) shift = Math.round((c - mid) / (72 / 25.4)); }
+        }
+      }
+      const geoS = shift ? { ...geoF, folds: geoF.folds.map(v => v + shift), panels: geoF.panels.map(pn => ({ ...pn, x0: pn.kind === "flap" && pn.x0 === 0 ? 0 : pn.x0 + shift, x1: pn.kind === "flap" && pn.x0 > 0 ? pn.x1 : pn.x1 + shift })) } : geoF;
+      if (shift) add("coverFlaps", "info", `Las solapas no son iguales: la izquierda mide unos ${fmtMm(flapMm + shift)} mm y la derecha unos ${fmtMm(flapMm - shift)} mm (lo deduzco por dónde está el texto del lomo).`);
+      coverGeo = { ...geoS, x0, y0 };
+      const folds = geoS.folds.map(v => x0 + ptOf(v)), hfolds = geoS.hfolds.map(v => y0 + ptOf(v));
+      // texto sobre un pliegue: glifo por glifo (un bloque de texto puede ocupar toda la cubierta), y un
+      // aviso por pliegue con la zona que lo cruza
+      const near = ptOf(1.5);
+      const foldHits = (fs: number[], axis: 0 | 1) => fs.forEach(f => {
+        const gs = glyphs.filter(g => g.r[axis] < f + near && g.r[axis + 2] > f - near);
+        if (!gs.length) return;
+        const u = gs.reduce<Rect>((a, g) => [Math.min(a[0], g.r[0]), Math.min(a[1], g.r[1]), Math.max(a[2], g.r[2]), Math.max(a[3], g.r[3])], gs[0].r);
+        const crosses = gs.some(g => g.r[axis] < f - ptOf(0.3) && g.r[axis + 2] > f + ptOf(0.3));
+        add("spineText", "warn", "", 0, u, crosses ? "Texto que cruza el pliegue" : "Texto a menos de 1,5 mm del pliegue");
+      });
+      foldHits(folds, 0); foldHits(hfolds, 1);
       for (const r of tItems) {
-        for (const f of folds) if (r[0] < f + ptOf(1.5) && r[2] > f - ptOf(1.5)) add("spineText", "warn", "", 0, r, "Texto sobre un pliegue");
-        for (const f of hfolds) if (r[1] < f + ptOf(1.5) && r[3] > f - ptOf(1.5)) add("spineText", "warn", "", 0, r, "Texto sobre un pliegue");
         if (type === "tapadura") {
-          const inTurn = geo.panels.filter(pn => pn.kind === "turnin").some(pn => r[0] < x0 + ptOf(pn.x1) && r[2] > x0 + ptOf(pn.x0)) || hfolds.length === 2 && (r[1] < hfolds[0] || r[3] > hfolds[1]);
-          const inHinge = geo.panels.filter(pn => pn.kind === "hinge").some(pn => r[0] < x0 + ptOf(pn.x1) && r[2] > x0 + ptOf(pn.x0));
+          const inTurn = geoS.panels.filter(pn => pn.kind === "turnin").some(pn => r[0] < x0 + ptOf(pn.x1) && r[2] > x0 + ptOf(pn.x0)) || hfolds.length === 2 && (r[1] < hfolds[0] || r[3] > hfolds[1]);
+          const inHinge = geoS.panels.filter(pn => pn.kind === "hinge").some(pn => r[0] < x0 + ptOf(pn.x1) && r[2] > x0 + ptOf(pn.x0));
           if (inTurn) add("turnIn", "error", "", 0, r, "Texto en la vuelta");
           else if (inHinge) add("turnIn", "warn", "", 0, r, "Texto en el cajo");
         }
@@ -807,7 +872,12 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
     if (barcode) {
       const b = barcode, isbnsText = [...isbnMap.keys()].filter(v => v.length === 13);
       const mag = Math.round(b.magnification * 100);
-      if (b.magnification < 0.8) add("barcode", "error", "", 0, b.rect, `Código al ${mag} %`, `Está al ${mag} % del tamaño nominal: el mínimo es 80 %`);
+      // GS1 pide al menos 80 %; en el libro es muy común entre 70 y 80 % y los lectores lo leen.
+      // Bloqueante solo cuando es tan chico que muchos lectores fallan.
+      // Calibrado con 10 libros reales impresos sin problemas: 9 tenían el código entre 64 y 78 %.
+      if (b.magnification < 0.55) add("barcode", "error", "", 0, b.rect, `Código al ${mag} %`, `Está al ${mag} % del tamaño nominal: es tan chico que muchos lectores no lo van a leer (el mínimo de GS1 es 80 %)`);
+      else if (b.magnification < 0.7) add("barcode", "warn", "", 0, b.rect, `Código al ${mag} %`, `Está al ${mag} % del tamaño nominal. GS1 pide al menos 80 %; en libros se ve seguido entre 70 y 80 % y funciona, pero por debajo de 70 % algunos lectores fallan y algunas cadenas lo rechazan`);
+      else if (b.magnification < 0.8) add("barcode", "info", "", 0, b.rect, `Código al ${mag} %`, `Está al ${mag} % del tamaño nominal. Es habitual en libros y los lectores lo leen; si alguna cadena o distribuidora exige el mínimo de GS1, pide 80 %`);
       else if (b.magnification < 0.9) add("barcode", "info", "", 0, b.rect, `Código al ${mag} %`, `Está al ${mag} %: dentro de lo aceptable, pero cerca del mínimo (80 %)`);
       const nominalH = 22.85 * b.magnification;
       if (b.heightMm < nominalH * 0.5) add("barcode", "warn", "", 0, b.rect, "Barras recortadas", `Las barras miden ${fmtMm(b.heightMm)} mm de alto: están recortadas más de la mitad y algunos lectores fallan`);
@@ -895,7 +965,9 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
     if (failing.length) { const f = add("pdfxFail", "error", ""); failing.forEach(r => f.items!.push(r.label + (r.detail ? `: ${r.detail}` : ""))); }
     else passed.add("pdfx");
   } else {
-    const f = add("pdfx", system.wantsOutputIntent ? "warn" : "info", "");
+    // sin PDF/X es lo habitual; solo avisa si además hay algo que la norma prohíbe por una buena razón (RGB sin perfil)
+    const serious = failing.some(r => /RGB/.test(r.label));
+    const f = add("pdfx", system.wantsOutputIntent && serious ? "warn" : "info", "");
     failing.forEach(r => f.items!.push(`${r.label}${r.detail ? `: ${r.detail === "Falta" ? "falta" : r.detail}` : ""}`));
   }
 
@@ -904,7 +976,7 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
     "richBlackText", "knockoutText", "hairline", "pageSize", "trimbox", "jpeg", "shadingRgb", "spotDuplicate", "marksInBleed"];
   if (!cover) relevant.push("gutter"); if (mono) relevant.push("monoColor"); if (techList.length) relevant.push("techOverprint");
   // en un archivo pesado la tinta se midió con poco detalle: no se da por superada
-  for (const c of relevant) if (!findings.has(c) && !(light && c === "tac")) passed.add(c);
+  for (const c of relevant) if (!findings.has(c) && !(light && c === "tac") && !(mono && c === "tac")) passed.add(c);
 
   // textos de detalle
   for (const f of findings.values()) {
@@ -1028,9 +1100,24 @@ const order = (g: Group) => ["archivo", "paginas", "color", "imagenes", "texto",
 
 // ---------- tinta total ----------
 // Superficie por encima del límite (mm²), máximo (%) y rectángulo que encierra esas zonas.
-export function measureTac(r: Raster, scale: number, limit255: number): { overMm2: number; max: number; rect: Rect | null } {
+/** Caja que define lo que queda en el libro: la de corte si está, si no la de sangrado. */
+function trimName(pg: any): "TrimBox" | "ArtBox" | "BleedBox" {
+  const o = pg.getObject?.();
+  if (o && !o.getInheritable("TrimBox").isNull()) return "TrimBox";
+  if (o && !o.getInheritable("ArtBox").isNull()) return "ArtBox";
+  return "BleedBox";
+}
+/** Rango de píxeles de un raster que cae dentro de un rectángulo de la página (en puntos). */
+function clipPx(r: Raster, scale: number, box: Rect | null): [number, number, number, number] {
+  if (!box) return [0, 0, r.w, r.h];
+  const x0 = Math.max(0, Math.floor(box[0] * scale - r.x0)), y0 = Math.max(0, Math.floor(box[1] * scale - r.y0));
+  const x1 = Math.min(r.w, Math.ceil(box[2] * scale - r.x0)), y1 = Math.min(r.h, Math.ceil(box[3] * scale - r.y0));
+  return x1 > x0 && y1 > y0 ? [x0, y0, x1, y1] : [0, 0, r.w, r.h];
+}
+export function measureTac(r: Raster, scale: number, limit255: number, clip: Rect | null = null): { overMm2: number; max: number; rect: Rect | null } {
   let over = 0, fmax = 0; let ob: Rect | null = null;
-  for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
+  const [cx0, cy0, cx1, cy1] = clipPx(r, scale, clip);
+  for (let y = cy0; y < cy1; y++) for (let x = cx0; x < cx1; x++) {
     const o = (y * r.w + x) * 4; const s = r.px[o] + r.px[o + 1] + r.px[o + 2] + r.px[o + 3];
     if (s > fmax) fmax = s;
     if (s > limit255) {
@@ -1055,11 +1142,13 @@ export function tacDetail(key: string, pages: number[], limitPct: number, rgbPag
   pages.forEach((i, k) => {
     onProgress(k, pages.length);
     const pg = st.pdf.loadPage(i);
-    const b = pg.getBounds("MediaBox") as Rect; free(pg);
+    const b = pg.getBounds("MediaBox") as Rect;
+    let bl: Rect | null = null; try { bl = pg.getBounds(trimName(pg)) as Rect; } catch { /* */ }
+    free(pg);
     const area = (b[2] - b[0]) * (b[3] - b[1]);
     const FS = Math.min(150 / 72, Math.sqrt(6e6 / Math.max(1, area)));
     const r = rasterCMYK(st.pdf, i, FS, st.color, rgb.has(i));
-    const m = measureTac(r, FS, limitPct * 2.55);
+    const m = measureTac(r, FS, limitPct * 2.55, bl);
     out.push({ index: i, max: m.max, overMm2: m.overMm2, rect: m.rect, ppi: Math.round(FS * 72) });
     mupdf.emptyStore();
   });
@@ -1127,7 +1216,7 @@ export function sampleLangs(data: Uint8Array): { family: Family; share: number }
 // de páginas a baja resolución: tarda unos segundos aun en libros pesados.
 export interface Inspect extends Peek {
   isbn: string | null; isbnCountry: string | null;
-  sampled: number; colorPages: number; langs: { family: Family; share: number }[];
+  sampled: number; colorPages: number; accentPages: number; langs: { family: Family; share: number }[];
 }
 export function inspect(data: Uint8Array): Inspect {
   const d = mupdf.Document.openDocument(data, "application/pdf");
@@ -1144,18 +1233,28 @@ export function inspect(data: Uint8Array): Inspect {
     const isbnCountry = isbn ? Object.entries(ISBN_PREFIX).find(([, ps]) => ps.some(p => isbn!.startsWith(p)))?.[0] ?? null : null;
     // color: hasta 12 páginas repartidas por el libro, a muy baja resolución
     const picks = n <= 12 ? [...Array(n).keys()] : [...Array(12).keys()].map(k => Math.round(2 + (k * (n - 5)) / 11));
-    let colorPages = 0;
+    // colorPages: color en más del 1 % de la página (fotos, fondos); accentPages: algo de color aunque sea
+    // poco (títulos u ornamentos en una segunda tinta)
+    let colorPages = 0, accentPages = 0;
+    const SC = 0.15;
     for (const i of picks) {
       const pg = d.loadPage(i); let pix: any;
       try {
-        pix = pg.toPixmap(mupdf.Matrix.scale(0.08, 0.08), mupdf.ColorSpace.DeviceCMYK, false, false, "View", "MediaBox");
-        const px = pix.getPixels(), nc = pix.getNumberOfComponents(); let c = 0;
-        for (let o = 0; o < px.length; o += nc) if (px[o] > 12 || px[o + 1] > 12 || px[o + 2] > 12) c++;
-        if (c / (px.length / nc) > 0.01) colorPages++;
+        // solo dentro del sangrado: las marcas de corte van en registro y parecerían color
+        let box: Rect | null = null; try { box = pg.getBounds(trimName(pg)) as Rect; } catch { /* */ }
+        pix = pg.toPixmap(mupdf.Matrix.scale(SC, SC), mupdf.ColorSpace.DeviceCMYK, false, false, "View", "MediaBox");
+        const px = pix.getPixels(), nc = pix.getNumberOfComponents(), w = pix.getWidth(), h = pix.getHeight();
+        const [bx0, by0] = pix.getBounds();
+        const r = { w, h, x0: bx0, y0: by0 } as any as Raster;
+        const [x0, y0, x1, y1] = clipPx(r, SC, box);
+        let c = 0, n = 0;
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const o = (y * w + x) * nc; n++; if (px[o] > 12 || px[o + 1] > 12 || px[o + 2] > 12) c++; }
+        if (n && c / n > 0.01) colorPages++;
+        if (n && c >= 4 && c / n > 0.0003) accentPages++;
       } catch { /* página que no se puede dibujar: no cuenta */ } finally { free(pix, pg); }
     }
     mupdf.emptyStore();
-    return { ...base, isbn, isbnCountry, sampled: picks.length, colorPages, langs: base.cover ? [] : langsOf(d, 16) };
+    return { ...base, isbn, isbnCountry, sampled: picks.length, colorPages, accentPages, langs: base.cover ? [] : langsOf(d, 16) };
   } finally { try { d.destroy(); } catch { /* */ } }
 }
 

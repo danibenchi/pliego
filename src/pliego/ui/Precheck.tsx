@@ -22,7 +22,11 @@ export function compareProfile(profile: Profile, looks: { piece: Piece; insp: In
       items.push({ id: "inks", title: "Parece un libro a cuatro colores",
         text: `${interior.colorPages} de las ${interior.sampled} páginas que miré tienen color, y el perfil dice interior ${INKS_NAME[profile.inks ?? "1"]}.`,
         patch: { inks: "4", colorMode: "cmyk" } });
-    if (!mono && interior.sampled >= 6 && interior.colorPages === 0)
+    else if (profile.inks === "1" && (interior.accentPages ?? 0) >= Math.max(2, interior.sampled * 0.25))
+      items.push({ id: "inks", title: "Tiene detalles en color",
+        text: `En ${interior.accentPages} de las ${interior.sampled} páginas que miré hay elementos en color (títulos, ornamentos, filetes), y el perfil dice interior a una tinta. Si se imprime a cuatro colores, cambialo; si va a una tinta, esos elementos tienen que pasar a negro.`,
+        patch: { inks: "4", colorMode: "cmyk" } });
+    if (!mono && interior.sampled >= 6 && interior.colorPages === 0 && !(interior.accentPages ?? 0))
       items.push({ id: "inks", title: "Parece un libro a una tinta",
         text: `Ninguna de las ${interior.sampled} páginas que miré tiene color, y el perfil dice ${INKS_NAME[profile.inks ?? "4"]}.`,
         patch: { inks: "1", colorMode: "mono" } });
@@ -33,6 +37,19 @@ export function compareProfile(profile: Profile, looks: { piece: Piece; insp: In
     items.push({ id: "country", title: `El ISBN es de ${COUNTRY_NAME[c]}`,
       text: `El ISBN ${withIsbn.insp.isbn} tiene el prefijo de ${COUNTRY_NAME[c]}, y el perfil dice ${COUNTRY_NAME[profile.country] ?? profile.country}. Cambia lo que se pide en la página de créditos (depósito legal) y la variante del español.`,
       patch: { country: c as Profile["country"] } });
+  }
+  // tapa dura: la cubierta sobresale del interior por las vueltas (unos 15 mm) y la ceja de cada lado
+  const cov = looks.find(l => l.piece === "cubierta")?.insp;
+  if (interior && cov) {
+    const dh = cov.hMm - interior.hMm;
+    if (profile.coverType !== "tapadura" && dh >= 22 && dh <= 50)
+      items.push({ id: "coverType", title: "La cubierta parece de tapa dura",
+        text: `La cubierta mide ${Math.round(cov.hMm)} mm de alto y el interior ${Math.round(interior.hMm)} mm: los ${Math.round(dh)} mm de diferencia son las vueltas y la ceja de una tapa dura. El perfil dice ${profile.coverType === "sobrecubierta" ? "sobrecubierta" : "rústica"}.`,
+        patch: { coverType: "tapadura", binding: "tapadura" } });
+    else if (profile.coverType === "tapadura" && Math.abs(dh) <= 2)
+      items.push({ id: "coverType", title: "La cubierta parece de rústica",
+        text: `La cubierta tiene el mismo alto que el interior (${Math.round(cov.hMm)} mm): no tiene vueltas de tapa dura.`,
+        patch: { coverType: "rustica", binding: "fresada" } });
   }
   if (interior && profile.language && profile.language !== "auto") {
     const fam = DICTS.find(d => d.id === profile.language)?.family;
@@ -49,7 +66,8 @@ export function PrecheckDialog({ profile, items, onRun, onCancel }: {
   profile: Profile; items: PreItem[]; onRun: (p: Profile) => void; onCancel: () => void;
 }) {
   const [on, setOn] = useState<Record<string, boolean>>(() => Object.fromEntries(items.map(i => [i.id, true])));
-  const colorItem = items.find(i => i.id === "inks" && i.patch.inks === "4");
+  // solo un libro con mucho color pide cambiar tipo de libro y papel; unos títulos en color, no
+  const colorItem = items.find(i => i.id === "inks" && i.patch.inks === "4" && i.title.startsWith("Parece"));
   const [contentId, setContentId] = useState(colorItem && MONO_CONTENT.has(profile.contentId) ? "escolar" : profile.contentId);
   const [paperId, setPaperId] = useState(colorItem && !PAPERS.find(p => p.id === profile.paperId)?.coated ? "estucado115" : profile.paperId);
   useEffect(() => {

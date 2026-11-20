@@ -33,6 +33,10 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
       paras.push({ page: p.index, text, lines: ls });
     }
   }
+  // alto de línea habitual del cuerpo de texto (mediana)
+  const lh = paras.flatMap(pa => pa.lines.map(l => l.r[3] - l.r[1])).filter(h => h > 2).sort((a, b) => a - b);
+  const bodyH = lh.length ? lh[lh.length >> 1] : 12;
+  let loremBig = 0;
   const rectAt = (pa: Para, idx: number): R => {
     // línea aproximada donde cae el carácter idx del párrafo
     let acc = 0;
@@ -47,26 +51,45 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
   let openQ = false, openE = false, prevPage = -1;
   // contexto de fórmula o de unidades (m . c . ∆t, J/kg . K, te - t2): ahí el punto y el guion son operadores
   const mathy = (t: string, i: number) => /[=∆Δ°×·/+]|\d/.test(t.slice(Math.max(0, i - 12), i + 12));
+  // estilo de la casa para el diálogo: en la Argentina es muy común la semirraya (–) en lugar de la raya (—)
+  const emDia = paras.filter(pa => /^—\s?[\p{Lu}¿¡]/u.test(pa.text)).length, enDia = paras.filter(pa => /^–\s?[\p{Lu}¿¡]/u.test(pa.text)).length;
+  const enStyle = enDia > emDia;
+  // pregunta en inglés: título en mayúsculas iniciales («Worth Revisiting?», «No Kings?») o palabras inglesas
+  const EN = /\b(?:the|of|or|oh|why|not|up|there|somebody|and|you|your|with|what|how|why|who|are|does|was|is|it|this|that|my|we|can|right|know|her|his|to|for|in|on|do)\b/gi;
+  const ES = /\b(?:que|de|la|el|en|los|las|se|por|con|un|una|es|qué|cómo|por qué|del|al|lo|le|su|no)\b/gi;
+  const foreignQ = (s: string, at: number) => {
+    let before = s.slice(Math.max(0, at - 60), at);
+    const cut = Math.max(...[".", "?", "!", "¿", "¡", "«", "“", "("].map(c => before.lastIndexOf(c)));
+    if (cut >= 0) before = before.slice(cut + 1);
+    const ws = before.split(/\s+/).filter(Boolean).slice(-6);
+    const l2 = ws.slice(-2);
+    if (l2.length === 2 && l2.every(w => /^[“"«(]?\p{Lu}\p{Ll}/u.test(w)) && !/^[¿¡]/.test(l2[0])) return true;
+    if (/^(?:right|sorry|okay|ok|please|yeah|baby|darling|dear|man|guys|honey)[”"»)]*$/i.test(ws[ws.length - 1] ?? "")) return true;
+    const tail = ws.join(" ");
+    return (tail.match(EN) ?? []).length >= 1 && (tail.match(ES) ?? []).length === 0;
+  };
   for (const pa of paras) {
     const t = pa.text;
     latin += (t.match(/[«»]/g) ?? []).length; english += (t.match(/[“”]/g) ?? []).length;
     for (const m of t.matchAll(/"/g)) { straight++; hit("straightQuotes", pa, m.index!, "comilla recta"); }
     for (const m of t.matchAll(/(?<=\p{L})'(?=\p{L})|(?<=\s)'(?=\p{L})/gu)) hit("straightQuotes", pa, m.index!, "apóstrofo o comilla simple recta");
     // diálogo: guion o semirraya al comienzo de párrafo, o raya separada del parlamento
-    if (/^[-–]\s?\p{L}/u.test(t)) hit("dialogDash", pa, 0, "diálogo con guion en lugar de raya:");
+    // (en minúscula no es un diálogo: es un inciso que viene de la página o el bloque anterior)
+    if (/^-\s?[\p{Lu}¿¡]/u.test(t) || (!enStyle && /^–\s?[\p{Lu}¿¡]/u.test(t))) hit("dialogDash", pa, 0, "diálogo con guion en lugar de raya:");
     if (/^—\s+\p{L}/u.test(t)) hit("dialogDash", pa, 0, "espacio después de la raya de diálogo:");
-    for (const m of t.matchAll(/\p{L} - \p{L}/gu)) if (!mathy(t, m.index!)) hit("dialogDash", pa, m.index! + 1, "guion entre espacios (¿raya o semirraya?):");
+    for (const m of t.matchAll(/\p{L} - \p{L}/gu)) if (!mathy(t, m.index!)) hit("spacedHyphen", pa, m.index! + 1, "guion entre espacios:");
     for (const m of t.matchAll(/\p{L}[,.;:!?»)]?\s—\s\p{L}/gu)) if (!/^—/.test(t.slice(m.index!))) hit("dialogDash", pa, m.index! + 2, "raya de inciso con espacios a los dos lados:");
     // espacios mal puestos
     if (!/(\s\.){3}/.test(t)) for (const m of t.matchAll(/\p{L}\s+[,.;:!?](?!\.\.)/gu)) if (!mathy(t, m.index!)) hit("spacing", pa, m.index! + 1, "espacio antes del signo:");
     for (const m of t.matchAll(/[¿¡(«]\s+\p{L}|\p{L}\s+[)»]/gu)) hit("spacing", pa, m.index! + 1, "espacio de más junto al signo:");
     for (const m of t.matchAll(/\p{Ll}[,;:]\p{L}|\p{Ll}[.?!]\p{Lu}\p{Ll}/gu)) if (!/^(?:www|http)/.test(t.slice(Math.max(0, m.index! - 8)))) hit("spacing", pa, m.index! + 1, "falta espacio después del signo:");
     // puntuación doble
-    for (const m of t.matchAll(/(?<![.…])\.\.(?!\.)|…\.|\.\.\.\./g)) hit("punctuation", pa, m.index!, "puntos de más:");
+    for (const m of t.matchAll(/(?<![.…])\.\.(?!\.)|…\.|(?<!\.)\.\.\.\.(?!\.)/g)) hit("punctuation", pa, m.index!, "puntos de más:");
     for (const m of t.matchAll(/,,|;;|::/g)) hit("punctuation", pa, m.index!, "signo duplicado:");
     // signos de apertura en español
     if (o.spanish) {
-      if (pa.page !== prevPage) { openQ = openE = false; prevPage = pa.page; }
+      // una pregunta puede empezar al pie de una página y terminar en la siguiente: el estado sigue
+      if (pa.page !== prevPage) prevPage = pa.page;
       // también vale un bloque de la misma página que termina justo arriba con la pregunta abierta
       // (las sangrías francesas y los recuadros parten un mismo párrafo en dos bloques)
       const f0 = pa.lines[0].r, h0 = Math.max(4, f0[3] - f0[1]);
@@ -76,14 +99,30 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
       })());
       if (!openQ) openQ = above("¿", "?");
       if (!openE) openE = above("¡", "!");
-      const segs = t.split(/(?<=[.!?…»])\s+(?=[¿¡«—\p{Lu}])/u);
-      segs.forEach((s, k) => {
-        const q = s.search(/\?(?=\s|$|[»”)"’.,;:])/), e = s.search(/!(?=\s|$|[»”)"’.,;:])/);
-        // una pregunta que empezó en el bloque anterior (sangría francesa, columnas) ya tiene su ¿
-        const carriedQ = k === 0 && openQ, carriedE = k === 0 && openE;
-        if (q > 0 && !s.includes("¿") && !carriedQ && !/https?:|www\.|\.(com|org|ar|es|net)\b/.test(s)) hit("openingMarks", pa, t.indexOf(s) + q, "falta el signo de apertura ¿:");
-        if (e > 0 && !s.includes("¡") && !carriedE) hit("openingMarks", pa, t.indexOf(s) + e, "falta el signo de apertura ¡:");
-      });
+      // para cada cierre, el signo de apertura tiene que estar entre el cierre anterior del mismo tipo y
+      // este (no se corta en los puntos: «¡Washington D. C. será liberada hoy!»)
+      const contStart = /^[\p{Ll}\d(–—-]/u.test(t); // el párrafo sigue de otro bloque o de la página anterior
+      for (const [close, open, carried, what] of [["?", "¿", openQ, "falta el signo de apertura ¿:"], ["!", "¡", openE, "falta el signo de apertura ¡:"]] as const) {
+        for (const m of t.matchAll(close === "?" ? /\?(?=\s|$|[»”)"’.,;:])/g : /!(?=\s|$|[»”)"’.,;:])/g)) {
+          const i = m.index!; if (i === 0) continue;
+          // se busca hacia atrás el signo de apertura que le corresponde, contando los anidados
+          // («¿… (y acaba de ser admitida, ¿no?) su relativa impotencia?») y los dobles («¡¡Mati!!»)
+          let j = i - 1; while (j >= 0 && t[j] === close) j--;
+          let depth = 0, found = false;
+          for (; j >= 0 && j > i - 600; j--) {
+            if (t[j] === close && t[j + 1] !== close) depth++;
+            else if (t[j] === open && (j === 0 || t[j - 1] !== open)) { if (depth === 0) { found = true; break; } depth--; }
+          }
+          if (found) continue;
+          const prev = t.lastIndexOf(close, i - 1);
+          const span = t.slice(prev + 1, i);
+          if (prev < 0 && (carried || (contStart && !/[.…]\s+[\p{Lu}¿¡«—]/u.test(span)))) continue;
+          if (/https?:|www\.|\.(com|org|ar|es|net)\b/.test(span)) continue;
+          if (close === "!" && /(?:^|\s)\p{Lu}$/u.test(span)) continue; // marcas como «E!» o «Yahoo!»
+          if (foreignQ(t, i)) continue;
+          hit("openingMarks", pa, i, what);
+        }
+      }
       openQ = t.lastIndexOf("¿") > t.lastIndexOf("?"); openE = t.lastIndexOf("¡") > t.lastIndexOf("!");
     }
     // comillas y paréntesis sin cerrar en el mismo párrafo (salvo comillas de seguir)
@@ -92,7 +131,10 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
     const po = (t.match(/\(/g) ?? []).length, pc = (t.match(/\)/g) ?? []).length;
     if (po !== pc && t.length < 1600 && !/\b\d+\)|\b[a-z]\)/.test(t)) hit("unbalanced", pa, po > pc ? t.lastIndexOf("(") : t.lastIndexOf(")"), po > pc ? "paréntesis sin cerrar:" : "paréntesis sin abrir:");
     // marcas de trabajo que quedaron en el texto
-    for (const m of t.matchAll(/lorem ipsum|\[\s*(?:pág|p)\.?\s*\]|\bp(?:á|a)g(?:ina)?s?\.?\s*(?:00+|xx+|\?\?|#+)(?![\p{L}\d])|[¡!]?Error[!.]?\s+(?:Marcador no definido|No se encuentra el origen de la referencia|Bookmark not defined|Reference source not found)/giu)) hit("placeholder", pa, m.index!, "marca de trabajo:");
+    // «lorem ipsum» en letra grande es casi siempre un ejemplo tipográfico a propósito (un libro de diseño
+    // que muestra fuentes); en letra de texto es relleno olvidado
+    for (const m of t.matchAll(/lorem ipsum/giu)) { const r = rectAt(pa, m.index!); if (r[3] - r[1] > bodyH * 1.35) loremBig++; hit("placeholder", pa, m.index!, "marca de trabajo:"); }
+    for (const m of t.matchAll(/\[\s*(?:pág|p)\.?\s*\]|\bp(?:á|a)g(?:ina)?s?\.?\s*(?:00+|xx+|\?\?|#+)(?![\p{L}\d])|[¡!]?Error[!.]?\s+(?:Marcador no definido|No se encuentra el origen de la referencia|Bookmark not defined|Reference source not found)/giu)) hit("placeholder", pa, m.index!, "marca de trabajo:");
     for (const m of t.matchAll(/[\[(]\s*(?:REVISAR|PENDIENTE|OJO|FALTA|TK|NOTA DEL EDITOR|N\. ?del E\.)[^\])]{0,40}[\])]|\b(?:REVISAR|PENDIENTE|OJO):|\bTK\b/gu)) hit("placeholder", pa, m.index!, "marca de trabajo:");
   }
   if (latin > 5 && english > 5) {
@@ -109,12 +151,15 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
   }
   const DET: Record<string, (n: number, ps: number[]) => [Sev, string]> = {
     straightQuotes: (n, ps) => ["warn", `${pl(n, "comilla recta", "comillas rectas")} de máquina de escribir (${pagesTxt(ps)}).`],
+    spacedHyphen: (n, ps) => ["info", `${pl(n, "guion", "guiones")} entre espacios (${pagesTxt(ps)}). Como separador o inciso suele ir raya o semirraya; si es una enumeración a propósito, está bien.`],
     dialogDash: (n, ps) => ["warn", `${pl(n, "diálogo o inciso", "diálogos o incisos")} con el guion o el espacio mal puesto (${pagesTxt(ps)}).`],
     spacing: (n, ps) => ["warn", `${pl(n, "espacio mal puesto", "espacios mal puestos")} junto a signos de puntuación (${pagesTxt(ps)}).`],
     punctuation: (n, ps) => ["warn", `${pl(n, "signo duplicado", "signos duplicados")} o puntos de más (${pagesTxt(ps)}).`],
     openingMarks: (n, ps) => ["warn", `${pl(n, "pregunta o exclamación", "preguntas o exclamaciones")} sin el signo de apertura (${pagesTxt(ps)}).`],
     unbalanced: (n, ps) => ["info", `${pl(n, "párrafo")} con comillas o paréntesis que no cierran (${pagesTxt(ps)}).`],
-    placeholder: (n, ps) => ["error", `${pl(n, "marca")} de trabajo que ${n === 1 ? "quedó" : "quedaron"} en el texto: relleno, referencias sin resolver o notas para el editor (${pagesTxt(ps)}).`],
+    placeholder: (n, ps) => n === loremBig
+      ? ["warn", `${pl(n, "texto")} «lorem ipsum» en letra grande (${pagesTxt(ps)}). Si es un ejemplo tipográfico a propósito, está bien; si no, es relleno que quedó.`]
+      : ["error", `${pl(n, "marca")} de trabajo que ${n === 1 ? "quedó" : "quedaron"} en el texto: relleno, referencias sin resolver o notas para el editor (${pagesTxt(ps)}).`],
   };
   for (const [k, f] of Object.entries(DET)) {
     ran.push(k);
@@ -159,7 +204,10 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
     const notesTop = p.lines.filter(l => !band(p, l) && small(p, l)).reduce((m, l) => Math.min(m, l.r[1]), Infinity);
     const main = bl.filter(l => l.r[3] < notesTop);
     const all = p.lines.filter(l => !band(p, l) && (isBody(l) || small(p, l)));
-    return { p, n: main.length, bottom: all.length && main.length ? Math.max(...all.map(l => l.r[3])) : null, top: main.length ? Math.min(...main.map(l => l.r[1])) : null, hasImage: false };
+    // texto corrido = líneas justificadas; en verso o listas la mayoría de las líneas no llega al margen
+    const rmax = main.reduce((m, l) => Math.max(m, l.r[2]), 0);
+    const prose = main.length ? main.filter(l => l.r[2] > rmax - 3).length / main.length >= 0.5 : false;
+    return { p, prose, n: main.length, bottom: all.length && main.length ? Math.max(...all.map(l => l.r[3])) : null, top: main.length ? Math.min(...main.map(l => l.r[1])) : null, hasImage: false };
   });
   const lead = (() => {
     const d = new Map<number, number>();
@@ -167,33 +215,86 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
     return [...d.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? body * 1.3;
   })();
   const endsSection = (i: number) => { let j = i + 1; while (j < pages.length && info[j].n === 0) j++; return j >= pages.length || chapterStart.has(j) || j > i + 1; };
-  const full = info.filter((x, i) => x.n >= 12 && !chapterStart.has(i) && !endsSection(i) && x.bottom !== null);
+  const full = info.filter((x, i) => x.n >= 12 && x.prose && !chapterStart.has(i) && !endsSection(i) && x.bottom !== null);
   ran.push("pageDepth");
   if (full.length >= 6) {
     const bottoms = full.map(x => x.bottom!).sort((a, b) => a - b), ref = bottoms[Math.floor(bottoms.length / 2)];
     const odd: { page: number; r: R; item: string }[] = [];
+    let serious = 0;
     for (const x of full) {
       const d = (x.bottom! - ref) / lead;
+      if (d <= -3.5) continue; // página corta a propósito: termina una sección o un apartado
+      if (Math.abs(d) >= 1.75) serious++;
       if (Math.abs(d) >= 0.75) odd.push({ page: x.p.index, r: [x.p.trim[0] + 10, Math.min(x.bottom!, ref), x.p.trim[2] - 10, Math.max(x.bottom!, ref)], item: `Pág. ${x.p.index + 1}: ${d < 0 ? `${Math.round(-d)} línea${Math.round(-d) > 1 ? "s" : ""} más corta` : `${Math.round(d)} línea${Math.round(d) > 1 ? "s" : ""} más larga`} que las demás` });
     }
     // pares enfrentados (par a la izquierda, impar a la derecha)
     for (let i = 1; i + 1 < pages.length; i += 2) {
       const a = info[i], b = info[i + 1];
-      if (!a.bottom || !b.bottom || a.n < 12 || b.n < 12 || chapterStart.has(i) || chapterStart.has(i + 1) || endsSection(i) || endsSection(i + 1)) continue;
+      if (!a.bottom || !b.bottom || a.n < 12 || b.n < 12 || !a.prose || !b.prose || chapterStart.has(i) || chapterStart.has(i + 1) || endsSection(i) || endsSection(i + 1)) continue;
       if (Math.abs(a.bottom - b.bottom) >= lead * 0.5 && !odd.some(x => x.page === i || x.page === i + 1)) odd.push({ page: i, r: [a.p.trim[0] + 10, Math.min(a.bottom, b.bottom), a.p.trim[2] - 10, Math.max(a.bottom, b.bottom)], item: `Págs. ${i + 1} y ${i + 2}: las páginas enfrentadas terminan a distinta altura` });
     }
-    if (odd.length) { add("pageDepth", "warn", `${pl(odd.length, "página")} de texto corrido no termina${odd.length !== 1 ? "n" : ""} a la misma altura que las demás (${pagesTxt(odd.map(x => x.page))}).`); for (const x of odd.slice(0, 60)) add("pageDepth", "warn", "", x.page, x.r, "Altura de página distinta", x.item); }
+    // llevar o quitar una línea para resolver una viuda es práctica habitual: solo es aviso si hay
+    // diferencias de dos o tres líneas
+    const sv: Sev = serious ? "warn" : "info";
+    if (odd.length) { add("pageDepth", sv, `${pl(odd.length, "página")} de texto corrido no termina${odd.length !== 1 ? "n" : ""} a la misma altura que las demás (${pagesTxt(odd.map(x => x.page))}).${serious ? "" : " Son diferencias de una línea, habituales para resolver viudas; conviene que las páginas enfrentadas queden parejas."}`); for (const x of odd.slice(0, 60)) add("pageDepth", sv, "", x.page, x.r, "Altura de página distinta", x.item); }
   }
 
   // ---------- aparato ----------
   // notas al pie: números al pie en cuerpo menor, contra llamadas pegadas a una palabra en el texto
-  const notesByPage = new Map<number, { n: number; r: R }[]>(), callsByPage = new Map<number, { n: number; r: R }[]>();
+  const notesByPage = new Map<number, { n: number; r: R; size: number }[]>(), callsByPage = new Map<number, { n: number; r: R }[]>();
   for (const p of pages) {
+    const folio = o.folioOffset !== null ? p.index + 1 - o.folioOffset : null;
+    // zona de notas: debajo de la última línea en cuerpo de texto (las notas largas empiezan más arriba)
+    const lastBody = p.lines.filter(l => !band(p, l) && l.size >= body * 0.93).reduce((m, l) => Math.max(m, l.r[3]), 0);
     for (const l of p.lines) {
-      if (band(p, l)) continue;
-      const low = l.r[1] > p.trim[1] + (p.trim[3] - p.trim[1]) * 0.55;
-      if (small(p, l)) { const m = l.text.match(/^(\d{1,3})[.\s)]/); if (m && low) (notesByPage.get(p.index) ?? notesByPage.set(p.index, []).get(p.index)!).push({ n: +m[1], r: l.r }); continue; }
-      for (const w of l.words) { const m = w.t.match(/^\p{L}{2,}[.,;:!?»”)]?(\d{1,3})[.,;:]?$/u); if (m) (callsByPage.get(p.index) ?? callsByPage.set(p.index, []).get(p.index)!).push({ n: +m[1], r: w.r }); }
+      const low = l.r[1] > p.trim[1] + (p.trim[3] - p.trim[1]) * 0.55 || (l.r[1] >= lastBody - 1 && l.r[1] > p.trim[1] + (p.trim[3] - p.trim[1]) * 0.25 && l.size < body * 0.93);
+      const isSmall = small(p, l) || (low && l.size < body * 0.93);
+      // la última nota puede caer en la franja del pie: se acepta si no es el folio
+      if (band(p, l)) {
+        const m = l.text.match(/^(\d{1,3})\s+(\S+\s+\S+)/);
+        if (m && low && isSmall && +m[1] !== folio) (notesByPage.get(p.index) ?? notesByPage.set(p.index, []).get(p.index)!).push({ n: +m[1], r: l.r, size: l.size });
+        continue;
+      }
+      if (isSmall) { const m = l.text.match(/^(\d{1,3})(?:\.?\s|\))/); if (m && low) { (notesByPage.get(p.index) ?? notesByPage.set(p.index, []).get(p.index)!).push({ n: +m[1], r: l.r, size: l.size }); continue; } }
+      // las llamadas también aparecen en citas o versos en cuerpo menor
+      const lh = l.r[3] - l.r[1];
+      for (const w of l.words) {
+        if (/^(?:vol|pp?|núm|n\.º|cap|art|fig|t|ed|nro|no)\.?\d/i.test(w.t)) continue; // «vol.46», «p.12»
+        const m = w.t.match(/^(?:.*\p{L}{2,}|.*[)\]»”’"])[.,;:!?»”’")\]—–]{0,3}(\d{1,3})[.,;:—–)]{0,2}$/u)
+          // llamada en voladita separada de la palabra por un espacio («siglo xix 52.»): número suelto más bajo que la línea
+          ?? (lh > 0 && w.r[3] - w.r[1] < lh * 0.8 && /^\d{1,3}[.,;:]?$/.test(w.t) ? w.t.match(/^(\d{1,3})/) : null);
+        if (m) (callsByPage.get(p.index) ?? callsByPage.set(p.index, []).get(p.index)!).push({ n: +m[1], r: w.r });
+      }
+    }
+  }
+  // llamadas pegadas a un número («la Homestead Act de 186237»): se aceptan si la página tiene esa nota
+  const tokens = new Map<number, string[]>();
+  for (const p of pages) tokens.set(p.index, p.lines.filter(l => !band(p, l) && !small(p, l)).flatMap(l => l.words.map(w => w.t)));
+  const glued = (pg: number, n: number) => (tokens.get(pg) ?? []).some(t => new RegExp(`\\d{4}${n}[.,;:—–)»”]{0,2}$`).test(t));
+  // limpieza de candidatos: (1) los números de nota están alineados a la misma x en cada página par o
+  // impar; una línea de continuación que empieza con número («9 al 14 de octubre») no; (2) una página
+  // con varios «números al pie» y ninguna llamada no tiene notas (es un índice o una lista)
+  {
+    // (dentro de la misma página: alineados a la izquierda o a la derecha según la cantidad de cifras)
+    let lastN = -1;
+    for (const [pg, l] of [...notesByPage].sort((a, b) => a[0] - b[0])) {
+      const tol = (c: typeof l[0]) => Math.max(2.5, c.size * 0.6);
+      const al = (c: typeof l[0], o: typeof l[0]) => Math.abs(c.r[0] - o.r[0]) <= tol(c) || Math.abs(c.r[0] - (o.r[0] + (String(o.n).length - String(c.n).length) * 0.5 * o.size)) <= tol(c);
+      const seqOk = (c: typeof l[0]) => l.some(o => o !== c && Math.abs(o.n - c.n) === 1) || lastN === c.n - 1 || c.n === 1 && lastN < 0;
+      // grupos de candidatos alineados entre sí; se queda el grupo que tiene llamadas en la página (las
+      // notas de verdad las tienen; una lista numerada dentro de una cita, no)
+      const groups: (typeof l)[] = [];
+      for (const c of l) { const g = groups.find(g => g.some(o => al(c, o))); if (g) g.push(c); else groups.push([c]); }
+      const callsHere = callsByPage.get(pg) ?? [];
+      const hits = (g: typeof l) => g.filter(c => callsHere.some(x => x.n === c.n) || glued(pg, c.n)).length;
+      const withCalls = groups.filter(g => hits(g) > 0);
+      const chosen = l.length < 2 ? l : withCalls.length ? withCalls.flat() : groups.sort((a, b) => b.length - a.length)[0];
+      const near = (c: typeof l[0]) => chosen.some(o => o !== c && Math.abs(o.n - c.n) === 1) || lastN === c.n - 1;
+      const keep = l.filter(c => chosen.includes(c) || (l.length >= 2 && (withCalls.length ? near(c) : seqOk(c))));
+      if (keep.length) lastN = Math.max(...keep.map(c => c.n));
+      const calls = callsByPage.get(pg) ?? [];
+      if (keep.length >= 2 && !keep.some(nt => calls.some(c => c.n === nt.n))) notesByPage.delete(pg);
+      else notesByPage.set(pg, keep);
     }
   }
   const allNotes = [...notesByPage.entries()].flatMap(([pg, l]) => l.map(x => ({ ...x, page: pg }))).sort((a, b) => a.page - b.page || a.r[1] - b.r[1]);
@@ -213,7 +314,7 @@ export function typoChecks(pages: PageText[], o: TypoOpts, add: Add): string[] {
     const mis: { page: number; r: R; item: string }[] = [];
     for (const [pg, notes] of notesByPage) {
       const calls = new Set((callsByPage.get(pg) ?? []).map(c => c.n));
-      for (const nt of notes) if (!calls.has(nt.n)) mis.push({ page: pg, r: nt.r, item: `Pág. ${pg + 1}: la nota ${nt.n} no tiene llamada en el texto de la página` });
+      for (const nt of notes) if (!calls.has(nt.n) && !glued(pg, nt.n)) mis.push({ page: pg, r: nt.r, item: `Pág. ${pg + 1}: la nota ${nt.n} no tiene llamada en el texto de la página` });
     }
     for (const [pg, calls] of callsByPage) {
       const ns = new Set((notesByPage.get(pg) ?? []).map(c => c.n));
