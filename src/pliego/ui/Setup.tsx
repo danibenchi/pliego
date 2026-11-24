@@ -4,6 +4,7 @@ import { Privacy, SOURCE_URL, ScopeDialog } from "./bits";
 import { DICTS } from "../engine/lang";
 import { Printer, loadPrinters, savePrinters, printerFromProfile, putIcc, getIcc, exportPrinter, importPrinter } from "./printers";
 import { saveFile } from "./save";
+import { Collection, loadCollections, saveCollections, exportCollection, importCollection, piecesOf, fmtDate } from "./references";
 
 type Icc = { data: ArrayBuffer; name: string } | null;
 export interface CoverNeed { file: File; peekW: number; peekH: number }
@@ -35,6 +36,19 @@ export function Setup({ profile, setProfile, onFiles, error, engineState, icc, s
   const isCustom = profile.trimW && !FORMATS.some(f => `${f.w}x${f.h}` === fmtKey);
   const [custom, setCustom] = useState(!!isCustom);
   const printer = printers.find(p => p.id === profile.printerId) ?? null;
+  const [colls, setColls] = useState<Collection[]>(() => loadCollections());
+  const coll = colls.find(c => c.id === profile.collectionId) ?? null;
+  const collInput = useRef<HTMLInputElement>(null);
+  const chooseColl = (id: string) => { const c = colls.find(x => x.id === id); set({ collectionId: c?.id, collectionName: c?.name }); };
+  const removeColl = () => { if (!coll) return; const list = colls.filter(c => c.id !== coll.id); saveCollections(list); setColls(list); set({ collectionId: undefined, collectionName: undefined }); flash(`Borré la colección «${coll.name}».`); };
+  const exportColl = async () => { if (!coll) return; try { await saveFile(`Colección - ${coll.name}.json`, exportCollection(coll)); } catch { flash("No pude exportar el archivo."); } };
+  const importColl = async (f?: File | null) => {
+    if (!f) return;
+    const c = importCollection(await f.text());
+    if (!c) return flash("Ese archivo no es una colección de Pliego.");
+    const list = [...colls, c]; saveCollections(list); setColls(list); set({ collectionId: c.id, collectionName: c.name });
+    flash(`Importé la colección «${c.name}».`);
+  };
 
   useEffect(() => {
     const prevent = (e: DragEvent) => e.preventDefault();
@@ -54,15 +68,15 @@ export function Setup({ profile, setProfile, onFiles, error, engineState, icc, s
     setIcc({ data: buf, name: f.name.replace(/\.(icc|icm)$/i, "") });
   };
   const choosePrinter = async (id: string) => {
-    if (!id) { set({ printerId: undefined, printerName: undefined, spec: {}, finishes: undefined }); setIcc(null); return; }
+    if (!id) { set({ printerId: undefined, printerName: undefined, spec: {}, finishes: undefined, mmPerLeaf: undefined }); setIcc(null); return; }
     const pr = printers.find(p => p.id === id); if (!pr) return;
-    set({ printerId: pr.id, printerName: pr.name, press: pr.press, paperId: pr.paperId, inks: pr.inks ?? profile.inks, binding: pr.binding ?? profile.binding, spec: { ...pr.spec }, finishes: pr.finishes });
+    set({ printerId: pr.id, printerName: pr.name, press: pr.press, paperId: pr.paperId, inks: pr.inks ?? profile.inks, binding: pr.binding ?? profile.binding, spec: { ...pr.spec }, finishes: pr.finishes, mmPerLeaf: pr.mmPerLeaf });
     const data = pr.iccName ? await getIcc(pr.id) : null;
     setIcc(data && pr.iccName ? { data, name: pr.iccName } : null);
   };
   const savePrinter = async (name: string) => {
     const existing = printers.find(p => p.name.toLowerCase() === name.toLowerCase());
-    const pr = printerFromProfile(profile, name, icc?.name ?? null, existing?.id);
+    const pr = { ...printerFromProfile(profile, name, icc?.name ?? null, existing?.id), ...(existing?.measures ? { measures: existing.measures, refDate: existing.refDate, mmPerLeaf: existing.mmPerLeaf } : {}) };
     const list = existing ? printers.map(p => p.id === existing.id ? pr : p) : [...printers, pr];
     savePrinters(list); setPrinters(list); setSaving(null);
     if (icc) await putIcc(pr.id, icc.data.slice(0));
@@ -82,7 +96,7 @@ export function Setup({ profile, setProfile, onFiles, error, engineState, icc, s
     const pr = importPrinter(await f.text());
     if (!pr) return flash("Ese archivo no es una imprenta de Pliego.");
     const list = [...printers, pr]; savePrinters(list); setPrinters(list);
-    set({ printerId: pr.id, printerName: pr.name, press: pr.press, paperId: pr.paperId, inks: pr.inks ?? profile.inks, binding: pr.binding ?? profile.binding, spec: { ...pr.spec }, finishes: pr.finishes });
+    set({ printerId: pr.id, printerName: pr.name, press: pr.press, paperId: pr.paperId, inks: pr.inks ?? profile.inks, binding: pr.binding ?? profile.binding, spec: { ...pr.spec }, finishes: pr.finishes, mmPerLeaf: pr.mmPerLeaf });
     flash(`Importé «${pr.name}».${pr.notes ? " " + pr.notes : ""}`);
   };
 
@@ -90,7 +104,7 @@ export function Setup({ profile, setProfile, onFiles, error, engineState, icc, s
   const effect = [
     press === "offset" && paper ? `tinta máxima ${system.tac} %` : `tinta máxima ${system.tac} %`,
     paper && press === "offset" ? `condición de referencia ${paper.icc}` : null,
-    paper ? `${fmt(paper.mmPerLeaf)} mm por hoja para el lomo` : null,
+    profile.mmPerLeaf && printer?.mmPerLeaf ? `${fmt(profile.mmPerLeaf)} mm por hoja para el lomo, medido en la referencia de ${printer.name}` : paper ? `${fmt(paper.mmPerLeaf)} mm por hoja para el lomo` : null,
   ].filter(Boolean).join(" · ");
 
   return (
@@ -165,6 +179,20 @@ export function Setup({ profile, setProfile, onFiles, error, engineState, icc, s
                 <button type="button" className="x" onClick={() => setSaving(null)}>Cancelar</button>
               </form>}
         </div>
+        {printer?.measures && <p className="hint refhint">Con referencia de {piecesOf(printer.measures)} tomada de un PDF ({fmtDate(printer.refDate)}): los archivos se comparan con ella{printer.mmPerLeaf ? `, y el lomo se calcula con el papel real (${String(Math.round(printer.mmPerLeaf * 1000) / 10).replace(".", ",")} mm cada 100 hojas)` : ""}.</p>}
+        <div className="collbar">
+          <label><span>Colección</span>
+            <select value={profile.collectionId ?? ""} onChange={e => chooseColl(e.target.value)} aria-label="Colección">
+              <option value="">Ninguna</option>
+              {colls.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+          {coll && <button className="x" onClick={exportColl}>Exportar</button>}
+          <button className="x" onClick={() => collInput.current?.click()}>Importar</button>
+          {coll && <button className="x" onClick={removeColl}>Borrar</button>}
+          <input ref={collInput} type="file" accept=".json,application/json" hidden onChange={e => { importColl(e.target.files?.[0]); e.target.value = ""; }} />
+        </div>
+        <p className="hint">{coll ? `Se compara con el formato, la tipografía, la caja y los folios de «${coll.name}» (${piecesOf(coll.measures)}, ${fmtDate(coll.refDate)}).` : colls.length ? "Elegí una colección para comparar el libro con sus títulos anteriores." : "Para comparar con una colección o con lo que ya imprimiste en una imprenta: revisá un PDF que salió bien y tocá «Guardar como referencia» en el informe."}</p>
         {msg && <p className="hint ok" role="status">{msg}</p>}
 
         <Field label="Dónde se imprime" hint={PRESSES.find(p => p.id === press)?.note}>

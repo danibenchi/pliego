@@ -2,7 +2,7 @@
 // Las rutas de menú son de InDesign en español; se mencionan equivalentes cuando ayuda.
 
 export interface CheckCopy { group: Group; title: string; impact: string; fix: string }
-export type Group = "archivo" | "paginas" | "color" | "imagenes" | "texto" | "libro" | "cubierta" | "versiones" | "correcciones" | "original" | "ortotipografia" | "composicion" | "aparato";
+export type Group = "archivo" | "paginas" | "color" | "imagenes" | "texto" | "libro" | "cubierta" | "versiones" | "correcciones" | "original" | "ortotipografia" | "composicion" | "aparato" | "referencia";
 
 export const GROUPS: Record<Group, string> = {
   archivo: "Archivo",
@@ -18,9 +18,16 @@ export const GROUPS: Record<Group, string> = {
   aparato: "Aparato",
   correcciones: "Correcciones",
   original: "Cotejo con el original",
+  referencia: "Referencia",
 };
 
 export const COPY: Record<string, CheckCopy> = {
+  refPrinter: { group: "referencia", title: "Distinto de la referencia de la imprenta",
+    impact: "Compara el PDF con un archivo que ya imprimiste bien en esa imprenta: sangrado, PDF/X, perfil de salida, tinta total, resolución de las imágenes, RGB, tintas planas y, en la cubierta, el papel real que surge del lomo. Lo que cambia es lo primero que conviene confirmar.",
+    fix: "Si el cambio no es intencional, exportá con el mismo ajuste preestablecido que el archivo de referencia. Para crear una referencia, revisá un PDF que ya salió bien y usá «Guardar como referencia»." },
+  refCollection: { group: "referencia", title: "Distinto de la colección",
+    impact: "Compara el PDF con un título de la misma colección: formato, color, tipografía y cuerpo del texto, interlineado, márgenes de la caja, posición de los folios, apertura de capítulos y, en la cubierta, tipo, solapas y código de barras.",
+    fix: "Partí de la plantilla o del documento del título de referencia, o copiá sus estilos y páginas maestras. Si la diferencia es una decisión editorial, ignorala." },
   encrypted: { group: "archivo", title: "El PDF está protegido",
     impact: "La imprenta no puede procesar un PDF con contraseña o restricciones: el RIP lo rechaza.",
     fix: "Exportá de nuevo sin seguridad: en el cuadro de exportación, sección Seguridad, desmarcá todas las opciones." },

@@ -115,6 +115,8 @@ export interface Profile {
   chaptersOdd?: boolean | "auto"; typo?: boolean; language?: string;
   press?: Press; inks?: Inks; binding?: Binding; spec?: PrinterSpec; spineMm?: number; finishes?: string[]; printerId?: string; printerName?: string;
   spell?: boolean;
+  /** colección de referencia elegida (las medidas se guardan en el navegador) */
+  collectionId?: string; collectionName?: string;
 }
 
 export function resolve(p: Profile) {

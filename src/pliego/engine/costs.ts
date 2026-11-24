@@ -58,7 +58,7 @@ export function costs(r: Report): Cost[] {
   if (perLeaf) {
     const step = sig > 2 ? sig : 16;
     out.push({ tone: "info", title: "Cómo se mueve el lomo",
-      text: `Con ${paper?.name ?? "este papel"} (${fmt(perLeaf)} mm por hoja), el lomo de ${n} páginas mide unos ${fmt(Math.ceil(n / 2) * perLeaf)} mm. Cada ${step} páginas más suman ${fmt(step / 2 * perLeaf)} mm: si la extensión cambia, la cubierta se rehace.` });
+      text: `Con ${r.profile.mmPerLeaf && r.profile.printerName ? `el papel de ${r.profile.printerName} medido en la referencia` : paper?.name ?? "este papel"} (${String(Math.round(perLeaf * 1000) / 1000).replace(".", ",")} mm por hoja), el lomo de ${n} páginas mide unos ${fmt(Math.ceil(n / 2) * perLeaf)} mm. Cada ${step} páginas más suman ${fmt(step / 2 * perLeaf)} mm: si la extensión cambia, la cubierta se rehace.` });
   }
   return out;
 }

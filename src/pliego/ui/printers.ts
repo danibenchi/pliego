@@ -1,10 +1,15 @@
 // Imprentas guardadas por el editor: cómo imprime cada una y sus valores técnicos.
 // Se guardan en este navegador; el perfil de color va aparte, en IndexedDB, porque pesa.
 import type { Press, Inks, Binding, PrinterSpec, Profile } from "../engine/profiles";
+import { cleanMeasures, type RefMeasures } from "./references";
 
 export interface Printer {
   id: string; name: string; press: Press; paperId: string; inks?: Inks; binding?: Binding;
   spec: PrinterSpec; finishes?: string[]; iccName?: string | null; notes?: string;
+  /** referencia tomada de un PDF que ya salió bien en esta imprenta */
+  measures?: RefMeasures; refDate?: string;
+  /** espesor real del papel por hoja, sacado del lomo de la cubierta de referencia */
+  mmPerLeaf?: number;
 }
 const KEY = "pliego-imprentas";
 
@@ -37,6 +42,7 @@ export function importPrinter(text: string): Printer | null {
   try {
     const v = JSON.parse(text);
     if (v?.pliego !== "imprenta" || !v.name || !v.press) return null;
-    return { id: Math.random().toString(36).slice(2, 10), name: String(v.name).slice(0, 60), press: v.press, paperId: v.paperId ?? "ahuesado80", inks: v.inks, binding: v.binding, spec: v.spec ?? {}, finishes: v.finishes, iccName: null, notes: v.notes };
+    return { id: Math.random().toString(36).slice(2, 10), name: String(v.name).slice(0, 60), press: v.press, paperId: v.paperId ?? "ahuesado80", inks: v.inks, binding: v.binding, spec: v.spec ?? {}, finishes: v.finishes, iccName: null, notes: v.notes,
+      measures: cleanMeasures(v.measures), refDate: typeof v.refDate === "string" ? v.refDate : undefined, mmPerLeaf: typeof v.mmPerLeaf === "number" && v.mmPerLeaf > 0.02 && v.mmPerLeaf < 0.5 ? v.mmPerLeaf : undefined };
   } catch { return null; }
 }

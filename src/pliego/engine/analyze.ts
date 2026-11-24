@@ -6,6 +6,7 @@ import { scanContent, pageMatrixFor, PaintEvent } from "./contentStream";
 import { scanResources, spotKey, TECHNICAL, ImageProps } from "./resources";
 import { setupColor, rasterCMYK, softProof, ColorSetup, Raster, free } from "./color";
 import { pageText, PageText, sameTitle } from "./text";
+import { measureLayout, family, Measure } from "./reference";
 import { bookChecks, BookResult, Speller, ISBN_PREFIX, COUNTRY_NAME } from "./book";
 import { coverGeometry, CoverGeometry } from "./cover";
 import { scanBarcode, BarcodeInfo } from "./barcode";
@@ -42,6 +43,8 @@ export interface Report {
   spots: string[]; technical: string[]; layers: { name: string; hidden: boolean }[];
   book?: BookResult; coverGeo?: CoverGeometry & { x0: number; y0: number }; barcode?: BarcodeInfo | null;
   coverTitle?: string | null; key: string; hash?: string;
+  /** huella técnica y de diseño, para guardarlo como referencia o compararlo con una */
+  measure?: Measure;
   /** datos del perfil que no coinciden con lo que muestra el PDF, para proponer otra revisión */
   suggest?: { inks?: "4"; country?: string; reasons: string[] };
 }
@@ -304,6 +307,8 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
   const FINE_MAX_PX = 6e6; // tope de píxeles por página en la segunda pasada (cubiertas grandes, láminas)
   let transparency = 0, overprintUsed = false, deviceRGB = false, anyRGB = false, bit16 = false, jpx = false;
   const usedFonts = new Set<string>();
+  const imgPpis: number[] = [];
+  let measuredFlap: number | null = null;
   const allSpots = new Map<string, number[]>();
   const techSpots = new Set<string>();
   const rotated: number[] = [];
@@ -474,6 +479,7 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
         if (props?.jpegQ != null) parts.push(`JPEG calidad ${props.jpegQ}`);
         if (bpc === 16) parts.push("16 bits");
         const label = parts.join(" · ");
+        if (!lineart && (w > 64 || h > 64)) imgPpis.push(ppi);
         if (lineart) { if (ppi < system.lineArtPpi * 0.5) add("lineArt", "warn", "", i, rect, label); }
         else if (ppi < hardPpi) add("imgPpi", "error", "", i, rect, label, undefined, "imgPpi");
         else if (ppi < minPpi - 10) add("imgPpi", "warn", "", i, rect, label, undefined, "imgPpi");
@@ -796,6 +802,7 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
           add("coverFlaps", "info", `La cubierta parece tener solapas de ${f} mm. Las tomé para calcular las medidas y el lomo; si no es así, corregilo en el perfil.`);
         }
       }
+      measuredFlap = flapMm;
       const params = { type, trimW: tw, trimH: th, spine: expected, flapMm, boardMm: profile.boardMm ?? 2.5, cejaMm: profile.cejaMm ?? 3, turnInMm: profile.turnInMm ?? 15, hingeMm: profile.hingeMm ?? 8 };
       const geo = coverGeometry(params);
       const extra = geo.totalW - expected - (type === "tapadura" || type === "sobrecubierta" ? 2 * params.boardMm + (type === "sobrecubierta" ? 2 : 0) : 0);
@@ -1079,6 +1086,32 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
   }
   const isbnLand = valid13.length ? Object.entries(ISBN_PREFIX).find(([, ps]) => ps.some(p => valid13[0].value.startsWith(p)))?.[0] : undefined;
   if (isbnLand && isbnLand !== profile.country) { suggest.country = isbnLand; suggest.reasons.push(`el ISBN ${valid13[0].value} es de ${COUNTRY_NAME[isbnLand]}`); }
+  // huella para referencias de imprenta y de colección
+  let measure: Measure | undefined;
+  try {
+    const bleeds = pages.filter(p => p.hasTrim).map(p => Math.min(p.trim[0] - p.bleed[0], p.trim[1] - p.bleed[1], p.bleed[2] - p.trim[2], p.bleed[3] - p.trim[3]) * PT);
+    const sortedPpi = [...imgPpis].sort((a, b) => a - b);
+    const tw0 = cover ? p0.wMm : +(mainSize?.[1]?.length ? pages[mainSize[1][0]].wMm : p0.wMm), th0 = cover ? p0.hMm : +(mainSize?.[1]?.length ? pages[mainSize[1][0]].hMm : p0.hMm);
+    const chapterPages = (book?.chapters ?? []).map(c => c.page);
+    measure = {
+      v: 1, piece: cover ? "cubierta" : "interior", trimW: r1(tw0), trimH: r1(th0), pages: nPages,
+      bleedMm: bleeds.length ? Math.round([...bleeds].sort((a, b) => a - b)[bleeds.length >> 1] * 2) / 2 : null,
+      pdfVersion: `PDF ${(version / 10).toFixed(1)}`, pdfx, outputIntent,
+      colorShare: nPages ? pages.filter(p => p.plates.c + p.plates.m + p.plates.y > 0.01).length / nPages : 0,
+      tacMax: Math.max(0, ...pages.map(p => p.tacMax)),
+      // la menor resolución sin contar valores sueltos (un ícono escalado no define la referencia)
+      ppiMin: sortedPpi.length ? sortedPpi[Math.min(sortedPpi.length - 1, Math.floor(sortedPpi.length * 0.02))] : null,
+      rgb: pages.some(p => p.rgb), spots: [...allSpots.keys()].filter(k => !TECHNICAL.test(k)),
+      fonts: [...new Set(fontList.map(f => family(f.name)))].sort(),
+      layout: !cover && book ? measureLayout(texts, book.bodySize, chapterPages) : undefined,
+      cover: cover ? {
+        bookW: profile.trimW ?? null, bookH: profile.trimH ?? null, spineMm: spine ? spine.actual : null,
+        interiorPages: profile.interiorPages ?? null,
+        mmPerLeaf: spine && profile.interiorPages ? Math.round(spine.actual / Math.ceil(profile.interiorPages / 2) * 10000) / 10000 : null,
+        flapMm: profile.coverType === "tapadura" ? null : measuredFlap, coverType: profile.coverType ?? "rustica", barcode: !!barcode,
+      } : undefined,
+    };
+  } catch (e) { console.warn("No pude medir la huella del PDF", e); }
   keepDoc(colorIn?.key ?? "main", { doc, pdf, color, texts, bytes: data.length });
   onProgress({ stage: "Listo", pct: 100 });
   return {
@@ -1091,12 +1124,12 @@ export function analyze(data: Uint8Array, name: string, profile: Profile, onProg
     pdfxCheck: { target: pdfx ?? target, declared: !!pdfx, rules },
     color: { name: color.name, source: color.source, softProof: !!color.space },
     spots: [...allSpots.keys()], technical: techList, layers, suggest: suggest.reasons.length ? suggest : undefined,
-    book, coverGeo, barcode, coverTitle, key: colorIn?.key ?? "main",
+    book, coverGeo, barcode, coverTitle, key: colorIn?.key ?? "main", measure,
   };
 }
 
 const sevRank = (s: Sev) => (s === "error" ? 3 : s === "warn" ? 2 : s === "info" ? 1 : 0);
-const order = (g: Group) => ["archivo", "paginas", "color", "imagenes", "texto", "libro", "aparato", "ortotipografia", "composicion"].indexOf(g);
+const order = (g: Group) => ["referencia", "archivo", "paginas", "color", "imagenes", "texto", "libro", "aparato", "ortotipografia", "composicion"].indexOf(g);
 
 // ---------- tinta total ----------
 // Superficie por encima del límite (mm²), máximo (%) y rectángulo que encierra esas zonas.

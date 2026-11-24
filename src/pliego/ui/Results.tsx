@@ -27,7 +27,7 @@ const VERDICT: Record<Sev, { t: string; s: string }> = {
 export interface OrigState { status: "running" | "done" | "error"; name: string; findings: Finding[]; sum?: Omit<OrigResult, "findings">; message?: string }
 export interface DiffState { status: "running" | "done" | "error"; pct: number; name: string; findings: Finding[]; prevPages: number; message?: string; corr?: CorrSummary; corrFindings?: Finding[] }
 
-export function Results({ engine, report: base, since, diff, setDiff, orig, setOrig, onReset, onProfile, onBack, onAddCover, onRerun, onPatch }: { onPatch?: (r: Report) => void; onRerun?: (patch: any) => void; engine: Engine; report: Report; since: number | null; diff?: DiffState; setDiff: (d: DiffState) => void; orig?: OrigState; setOrig: (o: OrigState) => void; onAddCover?: (f: File) => void; onReset: () => void; onProfile: () => void; onBack?: () => void }) {
+export function Results({ engine, report: base, since, diff, setDiff, orig, setOrig, onReset, onProfile, onBack, onAddCover, onRerun, onPatch, onSaveRef }: { onSaveRef?: () => void; onPatch?: (r: Report) => void; onRerun?: (patch: any) => void; engine: Engine; report: Report; since: number | null; diff?: DiffState; setDiff: (d: DiffState) => void; orig?: OrigState; setOrig: (o: OrigState) => void; onAddCover?: (f: File) => void; onReset: () => void; onProfile: () => void; onBack?: () => void }) {
   const report = base;
   const rkey = docKey(base.file.name, base.profile.piece);
   const detected = detectApp(base.file.creator ?? "", base.file.producer ?? "");
@@ -126,7 +126,7 @@ export function Results({ engine, report: base, since, diff, setDiff, orig, setO
         {onBack && <button className="backlink" onClick={onBack}>← Volver al lote</button>}
         <div className={"verdict " + applied.verdict}>
           <div className="vhead"><SevIcon sev={applied.verdict} size={26} /><h1>{VERDICT[applied.verdict].t}</h1></div>
-          <p>{VERDICT[applied.verdict].s}{report.profile.printerName ? ` Revisado con los valores de ${report.profile.printerName}.` : ""} <button className="scopeinline" onClick={() => setScope(true)}>Revisión automática, no una certificación</button></p>
+          <p>{VERDICT[applied.verdict].s}{report.profile.printerName ? ` Revisado con los valores de ${report.profile.printerName}${report.profile.collectionName ? ` y la colección ${report.profile.collectionName}` : ""}.` : report.profile.collectionName ? ` Comparado con la colección ${report.profile.collectionName}.` : ""} <button className="scopeinline" onClick={() => setScope(true)}>Revisión automática, no una certificación</button></p>
           <ScopeDialog open={scope} onClose={() => setScope(false)} />
           {(() => {
             const coarse = report.pages.filter(p => (p.tacPpi ?? 150) < 150).length;
@@ -269,6 +269,7 @@ export function Results({ engine, report: base, since, diff, setDiff, orig, setO
             <button className="btn" onClick={onProfile}>Perfil</button>
             <button className="btn" onClick={onReset}>Otro PDF</button>
           </div>
+          {onSaveRef && report.measure && <button className="btn wide refbtn" onClick={onSaveRef} title="Guardar las medidas de este PDF para revisar los próximos de la misma imprenta o colección">Guardar como referencia</button>}
         </div>
       </aside>
 

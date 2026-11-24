@@ -14,6 +14,8 @@ import { Gate, Logo, useAccess, Privacy, SevIcon, Brand451 } from "./bits";
 import { sha256, applyReview, loadReview, docKey } from "./review";
 import { exportPdf } from "./exportPdf";
 import { sendStat, reviewStat, action } from "./stats";
+import { applyReferences } from "./references";
+import { RefSaveDialog } from "./RefSave";
 
 const DEFAULT: Profile = { systemId: "offset-obra", contentId: "narrativa", piece: "interior", colorMode: "mono", country: "es", flapMm: 0, paperId: "ahuesado80", spell: true, coverType: "rustica", press: "offset", inks: "1", binding: "fresada", chaptersOdd: "auto" };
 const PKEY = "pliego-perfil";
@@ -74,6 +76,8 @@ export function App() {
   const [docs, setDocs] = useState(() => typeof location !== "undefined" && location.hash.startsWith("#documentacion"));
   useEffect(() => { const h = () => setDocs(location.hash.startsWith("#documentacion")); window.addEventListener("hashchange", h); return () => window.removeEventListener("hashchange", h); }, []);
   const [lightRun, setLightRun] = useState(false);
+  const [refSave, setRefSave] = useState(false);
+  const [toast, setToast] = useState("");
   useEffect(() => { engine.onState = setEngineState; setEngineState(engine.state); }, [engine]);
 
   const report = reports[active] ?? reports.interior ?? reports.cubierta ?? null;
@@ -102,7 +106,7 @@ export function App() {
       try {
         const pk = await engine.peek(await items[i].file.arrayBuffer());
         const r = await analyzeFile(items[i].file, { ...prof, piece: pk.cover ? "cubierta" : "interior" }, items[i].key, pr => setProgress({ ...pr, stage: `${items[i].file.name} · ${pr.stage}` }));
-        items[i] = { ...items[i], status: "done", report: r };
+        items[i] = { ...items[i], status: "done", report: applyReferences(r) };
         sendStat(reviewStat(r, { batch: true }));
       } catch (e) {
         if (isOom(e)) { setForceLight(true); await engine.ready; }
@@ -117,7 +121,7 @@ export function App() {
     if (!it.report) return;
     if (!(await engine.has(it.key))) {
       setView("run"); setProgress({ stage: "Volviendo a abrir el PDF", pct: 5 });
-      try { const r = await analyzeFile(it.file, it.report.profile, it.key, setProgress); it.report = r; setBatch(b => b ? b.map(x => x.key === it.key ? { ...x, report: r } : x) : b); }
+      try { const r = applyReferences(await analyzeFile(it.file, it.report.profile, it.key, setProgress)); it.report = r; setBatch(b => b ? b.map(x => x.key === it.key ? { ...x, report: r } : x) : b); }
       catch { setView("batch"); return; }
     }
     setDiffs({}); setOrigs({});
@@ -211,6 +215,8 @@ export function App() {
         const x = crossCheck(out.interior, out.cubierta);
         out.interior = withExtra(out.interior, x); out.cubierta = withExtra(out.cubierta, x);
       }
+      if (out.interior) out.interior = applyReferences(out.interior);
+      if (out.cubierta) out.cubierta = applyReferences(out.cubierta);
       setReports(out); setActive(out.interior ? "interior" : "cubierta"); setView("results");
       for (const r of [out.interior, out.cubierta]) if (r) sendStat(reviewStat(r, { batch: false }));
     } catch (e: any) {
@@ -281,8 +287,15 @@ export function App() {
             if (patch.inks) { n.colorMode = patch.inks === "4" || patch.inks === "4+" ? "cmyk" : "mono"; }
             setProfile(n); run(files, n);
           }}
-          onProfile={() => { setView("setup"); }} onBack={batch ? () => setView("batch") : undefined} />
+          onProfile={() => { setView("setup"); }} onBack={batch ? () => setView("batch") : undefined}
+          onSaveRef={() => setRefSave(true)} />
       )}
+      {refSave && <RefSaveDialog reports={reports} profile={profile} onClose={() => setRefSave(false)} onSaved={(patch, msg) => {
+        setRefSave(false); setProfile({ ...profile, ...patch });
+        setReports(s => Object.fromEntries(Object.entries(s).map(([k, r]) => [k, r ? applyReferences({ ...r, profile: { ...r.profile, ...patch } }) : r])));
+        setToast(msg); setTimeout(() => setToast(""), 6000);
+      }} />}
+      {toast && <div className="toast" role="status">{toast}</div>}
 
       {view === "batch" && batch && (
         <main className="batch">

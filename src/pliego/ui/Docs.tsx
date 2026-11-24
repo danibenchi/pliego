@@ -9,7 +9,7 @@ import { SCOPE, SOURCE_URL, Logo } from "./bits";
 import { NEVER_SENT } from "./stats";
 import { VERSION, VERSION_DATE, CHANGELOG } from "../version";
 
-const ORDER: Group[] = ["archivo", "paginas", "color", "imagenes", "texto", "libro", "ortotipografia", "composicion", "aparato", "cubierta", "versiones", "correcciones", "original"];
+const ORDER: Group[] = ["archivo", "paginas", "color", "imagenes", "texto", "libro", "ortotipografia", "composicion", "aparato", "cubierta", "referencia", "versiones", "correcciones", "original"];
 const GROUP_INTRO: Partial<Record<Group, string>> = {
   archivo: "El archivo como objeto: estándar PDF/X, perfil de salida, versión, seguridad, capas y elementos interactivos.",
   paginas: "Tamaños, cajas de corte y sangrado, márgenes de seguridad, lomo y pliegos.",
@@ -21,6 +21,7 @@ const GROUP_INTRO: Partial<Record<Group, string>> = {
   composicion: "Calidad de la composición: líneas muy abiertas o apretadas y páginas que no terminan a la misma altura.",
   aparato: "Notas y llamadas, remisiones internas y numeración de figuras, tablas y láminas.",
   cubierta: "Medidas de la cubierta y del lomo, solapas, tapa dura, código de barras e ISBN, y cruce con el interior.",
+  referencia: "Cuando elegís una referencia guardada a partir de un PDF que ya salió bien: lo que cambia respecto de la imprenta o de la colección. Solo se guardan medidas y nombres de fuentes, nunca el PDF.",
   versiones: "Al comparar dos versiones del mismo PDF: qué texto, imágenes y paginación cambiaron.",
   correcciones: "Al subir la prueba anterior con comentarios de Acrobat: cuáles de las correcciones marcadas se aplicaron.",
   original: "Al subir el Word aprobado: texto que falta, sobra o cambió respecto del original, y notas.",
@@ -36,6 +37,7 @@ const FEATURES: { t: string; d: string }[] = [
   { t: "Aviso antes de revisar", d: "Al soltar el PDF, Pliego mira una muestra de páginas, el ISBN y el idioma, y avisa si el perfil elegido no coincide (por ejemplo, un libro a cuatro colores revisado como interior a una tinta, o un ISBN de otro país)." },
   { t: "Interior y cubierta juntos", d: "Si se sueltan los dos PDF, Pliego reconoce cuál es cuál, calcula el lomo con las páginas y el papel, y cruza ISBN, título y medidas." },
   { t: "Perfil de la imprenta", d: "Los valores de la imprenta (sangrado, tinta máxima, resolución, pliego, márgenes y su perfil ICC) se guardan con un nombre y se pueden exportar para compartirlos." },
+  { t: "Referencias de imprenta y de colección", d: "Desde el informe de un PDF que ya salió bien, «Guardar como referencia» toma sus medidas: para la imprenta, sangrado, PDF/X, perfil de salida, tinta, resolución, RGB, tintas planas y el papel real según el lomo; para la colección, formato, color, tipografía, cuerpo, interlineado, márgenes, folios, capítulos, solapas y tipo de cubierta. Los próximos archivos que se revisen con esa imprenta o colección muestran lo que cambia. Se guardan solo medidas y nombres de fuentes, en el navegador, y se pueden exportar para compartirlas." },
   { t: "Resumen de 30 segundos", d: "Arriba de los resultados, el veredicto y las tres primeras acciones para dejar el archivo listo." },
   { t: "Visor", d: "Cada hallazgo se marca en la página. Capas de cajas, tinta total, planchas, simulación del papel y doble página." },
   { t: "Comparar versiones", d: "Con el PDF anterior, muestra qué cambió y si se aplicaron las correcciones marcadas con comentarios de Acrobat." },

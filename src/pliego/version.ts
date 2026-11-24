@@ -1,12 +1,22 @@
 // Versión de Pliego e historial de cambios. Es la única fuente: la usan la documentación,
 // el informe en PDF y las estadísticas anónimas. Al publicar cambios, sumar una entrada arriba.
 
-export const VERSION = "1.1";
-export const VERSION_DATE = "20 de noviembre de 2026";
+export const VERSION = "1.2";
+export const VERSION_DATE = "24 de noviembre de 2026";
 
 export interface Release { version: string; date: string; status?: string; notes: string[] }
 
 export const CHANGELOG: Release[] = [
+  {
+    version: "1.2", date: "24 de noviembre de 2026", status: "Referencias de imprenta y de colección",
+    notes: [
+      "«Guardar como referencia» en el informe: un PDF que ya salió bien queda como referencia de una imprenta, de una colección o de las dos. Antes de guardar muestra qué se toma y, si el archivo tiene bloqueantes, pide confirmar que se imprimió bien.",
+      "Referencia de imprenta: sangrado, PDF/X, perfil de salida, versión, tinta total, resolución de las imágenes, RGB y tintas planas. Con la cubierta, mide el papel real a partir del lomo y los próximos lomos se calculan con ese espesor.",
+      "Referencia de colección: formato, color, tipografía y cuerpo del texto, interlineado, márgenes de la caja, posición de los folios, apertura de capítulos, tipo de cubierta, solapas y código de barras.",
+      "Nuevo grupo de hallazgos «Referencia» con lo que cambia; si todo coincide, figura entre los controles superados. Las colecciones se eligen, exportan e importan desde el perfil, como las imprentas.",
+      "Solo se guardan medidas y nombres de fuentes, en el navegador: nunca el PDF, su texto, sus imágenes ni su ISBN.",
+    ],
+  },
   {
     version: "1.1", date: "20 de noviembre de 2026", status: "Calibrada con diez libros reales ya impresos",
     notes: [
